@@ -1,14 +1,41 @@
 local PixelLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/MnsEn2001/Xlib/refs/heads/main/Lib/PixLib.lua"))()
+local GuiService = game:GetService("GuiService")
+
+-- ฟังก์ชันคำนวณขนาด GUI ตามขนาดหน้าจอ
+local function calculateGuiSize()
+    local viewportSize = game.Workspace.CurrentCamera.ViewportSize
+    local screenWidth, screenHeight = viewportSize.X, viewportSize.Y
+
+    -- กำหนดสัดส่วนของ GUI เทียบกับหน้าจอ (เช่น 60% ของความกว้าง, 70% ของความสูง)
+    local scaleWidth, scaleHeight = 0.6, 0.7
+
+    -- กำหนดขนาดขั้นต่ำและสูงสุด (ในหน่วย Offset)
+    local minSize = Vector2.new(400, 300) -- ขนาดขั้นต่ำ
+    local maxSize = Vector2.new(800, 600) -- ขนาดสูงสุด
+
+    -- คำนวณขนาด GUI
+    local guiWidth = math.clamp(screenWidth * scaleWidth, minSize.X, maxSize.X)
+    local guiHeight = math.clamp(screenHeight * scaleHeight, minSize.Y, maxSize.Y)
+
+    -- คำนวณ TabWidth เป็นสัดส่วนของ guiWidth (เช่น 20% ของความกว้าง GUI)
+    local tabWidth = math.floor(guiWidth * 0.2)
+
+    return UDim2.fromOffset(guiWidth, guiHeight), tabWidth
+end
+
+-- คำนวณขนาด GUI และ TabWidth
+local guiSize, tabWidth = calculateGuiSize()
 
 -- สร้าง GUI หลัก
 local Window = PixelLib:CreateGui({
     NameHub = "Pixel Hub",
     Description = "#VIP : Treasure Quest - V2",
     Color = Color3.fromRGB(0, 140, 255),
-    TabWidth = 140,
-    SizeUI = UDim2.fromOffset(650, 450)
+    TabWidth = tabWidth,
+    SizeUI = guiSize
 })
 
+-- ส่วนที่เหลือของโค้ดยังคงเหมือนเดิม
 local TabControls = Window
 
 -- แท็บแรก: Player Features
