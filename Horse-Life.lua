@@ -154,8 +154,7 @@ local function safeTeleportToPart(targetPosition, currentPart)
                             charData.HumanoidRootPart.Anchored = false
                             task.wait(0.05)
                         end
-                        print("Completed anchor toggle cycle after teleport to new part")
-                        -- Check for new folders in PlayerGui.Data.Animals if Auto Sell and Teleport are enabled
+
                         if teleportEnabled and autoSellEnabled then
                             local animalsFolder = localPlayer.PlayerGui:FindFirstChild("Data") and localPlayer.PlayerGui.Data:FindFirstChild("Animals")
                             if animalsFolder then
@@ -169,7 +168,6 @@ local function safeTeleportToPart(targetPosition, currentPart)
                                                 }
                                             }
                                             game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellSlotsRemote"):InvokeServer(unpack(args))
-                                            print("Auto Sell: Sold folder ", folderName)
                                         end)
                                         if not success then
                                             warn("Auto Sell failed for folder ", folderName, ": ", result)
@@ -226,7 +224,6 @@ local function simulateClick()
                 VirtualInputManager:SendMouseButtonEvent(screenPos.X, screenPos.Y, 0, true, game, 0)
                 task.wait(0.05) -- จำลองระยะเวลาการกด
                 VirtualInputManager:SendMouseButtonEvent(screenPos.X, screenPos.Y, 0, false, game, 0)
-                print("Simulated click at part position: ", screenPos.X, screenPos.Y)
             else
                 warn("Part is off-screen, cannot simulate click")
             end
@@ -241,39 +238,54 @@ end
 
 -- Auto-click loop every 0.5 seconds
 local function startAutoClickLoop()
-    spawn(function()
-        while autoClicking do
-            if teleportEnabled and selectedPart ~= "None" then
+    task.spawn(function()
+        while autoClicking and teleportEnabled do
+            if selectedPart ~= "None" then
                 simulateClick()
             end
-            wait(0.5)
+            task.wait(0.5)
         end
     end)
 end
 
--- เพิ่ม Dropdown สำหรับเลือก Part
+-- Player Tab Dropdown
 Section1_Tab1:AddDropdown({
     Name = "Select Part to Lasso",
     Options = {"None", "Horse", "Fae", "Fairy", "Flora", "Gargoyle", "Gray", "Kelpie", "Peryton", "Unicorn", "All"},
     Default = "None",
     Callback = function(selected)
         selectedPart = selected
-        lastTeleportedPart = nil -- Reset last teleported part when changing selection
-        print("Selected part changed to: ", selected)
+        lastTeleportedPart = nil -- Reset to ensure teleport to new part
+        print("Selected Part to Lasso changed to: ", selected)
     end
 })
 
--- เพิ่ม Toggle สำหรับเปิด/ปิดการวาปไปที่ Part และปรับ Gravity, Anchored, Camera, และ Auto-Click
-print("Adding toggle")
+-- เพิ่ม Toggle สำหรับเปิด/ปิดการวาปไปที่ Part และปรับ Gravity, Anchored, Camera, Auto-Click
 Section1_Tab1:AddToggle({
     Name = "Enable Teleport to Part",
     Default = false,
     Callback = function(state)
         teleportEnabled = state
-        lastTeleportedPart = nil -- Reset last teleported part when toggling
+        lastTeleportedPart = nil -- Reset to ensure fresh teleport
         local camera = Workspace.CurrentCamera
-        if charData and charData.HumanoidRootPart then
+        if charData and charData.HumanoidRootPart and charData.Humanoid then
             if state then
+                -- ตรวจสอบและตั้งค่า PromptFrame.Visible
+                local success, promptFrame = pcall(function()
+                    local promptGui = localPlayer.PlayerGui:FindFirstChild("PromptGui")
+                    return promptGui and promptGui:FindFirstChild("PromptFrame")
+                end)
+                if success and promptFrame and promptFrame.Visible then
+                    promptFrame.Visible = false
+                    print("PromptFrame.Visible set to false")
+                elseif not success then
+                    warn("Failed to access PromptGui.PromptFrame: ", promptFrame)
+                elseif promptFrame and not promptFrame.Visible then
+                    print("PromptFrame is already invisible")
+                else
+                    warn("PromptGui.PromptFrame not found")
+                end
+
                 -- ตั้งค่า Gravity และ Anchored
                 Workspace.Gravity = 0
                 charData.HumanoidRootPart.Anchored = true
@@ -281,12 +293,14 @@ Section1_Tab1:AddToggle({
                 camera.CameraType = Enum.CameraType.Scriptable
                 updateCamera() -- ตั้งค่ากล้องทันที
                 cameraConnection = RunService.RenderStepped:Connect(function()
-                    updateCamera()
+                    if teleportEnabled then
+                        updateCamera()
+                    end
                 end)
                 -- เริ่มการคลิกอัตโนมัติ
                 autoClicking = true
                 startAutoClickLoop()
-                print("Gravity set to 0, HumanoidRootPart anchored, camera locked to top-down view, and auto-click started")
+                print("Teleport to Part enabled")
             else
                 -- คืนค่า Gravity และ Anchored
                 Workspace.Gravity = defaultGravity
@@ -299,16 +313,16 @@ Section1_Tab1:AddToggle({
                 camera.CameraType = Enum.CameraType.Custom
                 -- หยุดการคลิกอัตโนมัติ
                 autoClicking = false
-                print("Gravity restored to default, HumanoidRootPart unanchored, camera restored to default, and auto-click stopped: ", defaultGravity)
+                print("Teleport to Part disabled")
             end
         else
-            warn("Cannot set gravity, anchor, camera, or auto-click: charData or HumanoidRootPart missing")
+            warn("Cannot set gravity, anchor, camera, auto-click, or check PromptFrame: charData or HumanoidRootPart missing")
+            teleportEnabled = false -- Disable toggle if charData is invalid
         end
     end
 })
 
 -- เพิ่ม Toggle สำหรับ Auto Sell
-print("Adding auto sell toggle")
 Section1_Tab1:AddToggle({
     Name = "Auto Sell",
     Default = false,
@@ -318,32 +332,19 @@ Section1_Tab1:AddToggle({
     end
 })
 
--- Teleport loop every 0.1 second using while loop
-print("Starting teleport loop")
-spawn(function()
-    while true do
-        if teleportEnabled and selectedPart ~= "None" and charData and charData.Humanoid and charData.HumanoidRootPart then
-            local nearestPart = getNearestPart()
-            if nearestPart and nearestPart:IsDescendantOf(Workspace) then
-                -- วาปผู้เล่นไปหา Part
-                safeTeleportToPart(nearestPart.Position, nearestPart)
-            else
-                warn("No valid part found for teleportation")
-            end
+-- Teleport loop every 0.1 second using RunService.Heartbeat
+local teleportConnection
+teleportConnection = RunService.Heartbeat:Connect(function()
+    if teleportEnabled and selectedPart ~= "None" and charData and charData.Humanoid and charData.HumanoidRootPart and charData.HumanoidRootPart:IsDescendantOf(Workspace) then
+        local nearestPart = getNearestPart()
+        if nearestPart and nearestPart:IsDescendantOf(Workspace) then
+            -- วาปผู้เล่นไปหา Part
+            safeTeleportToPart(nearestPart.Position, nearestPart)
+        else
+            warn("No valid part found for teleportation")
         end
-        wait(0.1)
     end
 end)
-print("Teleport loop initialized")
-
-
-
-
-
-
-
-
-
 
 -- แท็บที่สอง: Farm Features
 local Tab2 = TabControls:CreateTab({
@@ -408,9 +409,13 @@ local function farmFood()
 
             -- ส่วนที่ 2: RemoteEvent สำหรับทรัพยากร (ใช้ Animal ID 3)
             local args2 = {
-                [1] = localPlayer.Character.Animals:FindFirstChild("3")
+                [1] = localPlayer.Character and localPlayer.Character.Animals:FindFirstChild("3")
             }
-            Workspace:WaitForChild("Interactions"):WaitForChild("Resource"):WaitForChild(resource):WaitForChild("RemoteEvent"):InvokeServer(unpack(args2))
+            if args2[1] then
+                Workspace:WaitForChild("Interactions"):WaitForChild("Resource"):WaitForChild(resource):WaitForChild("RemoteEvent"):InvokeServer(unpack(args2))
+            else
+                warn("Animal ID 3 not found for resource ", resource)
+            end
         end
     end)
     if not success then
@@ -442,6 +447,7 @@ Section1_Tab2:AddToggle({
     Default = false,
     Callback = function(state)
         FarmToggles.FarmJumpsEXP = state
+        print("Farm Jumps EXP toggled: ", state and "Enabled" or "Disabled")
     end
 })
 
@@ -451,6 +457,18 @@ Section1_Tab2:AddToggle({
     Default = false,
     Callback = function(state)
         FarmToggles.BoostPads = state
+        print("BoostPads toggled: ", state and "Enabled" or "Disabled")
+    end
+})
+
+-- Farm Tab Dropdown
+Section2_Tab2:AddDropdown({
+    Name = "Select Food",
+    Options = {"AppleBarrel", "BerryBush", "FallenTree", "FoodPallet", "LargeBerryBush", "StoneDeposit", "Stump", "Treasure", "SilkBush", "All"},
+    Default = "SilkBush",
+    Callback = function(selected)
+        selectedFood = selected
+        print("Selected Food changed to: ", selected)
     end
 })
 
@@ -460,43 +478,32 @@ Section2_Tab2:AddToggle({
     Default = false,
     Callback = function(state)
         FarmToggles.FarmFood = state
-    end
-})
-
--- Dropdown สำหรับเลือกทรัพยากร
-print("Adding farm dropdown")
-Section2_Tab2:AddDropdown({
-    Name = "Select Food",
-    Options = {"AppleBarrel", "BerryBush", "FallenTree", "FoodPallet", "LargeBerryBush", "StoneDeposit", "Stump", "Treasure", "SilkBush", "All"},
-    Default = "SilkBush",
-    Callback = function(selected)
-        selectedFood = selected
+        print("Farm Food toggled: ", state and "Enabled" or "Disabled")
     end
 })
 
 -- Loop สำหรับจัดการ Farm ทุกๆ 0.1 วินาที
-print("Before farm loop")
 RunService.Heartbeat:Connect(function()
-    local currentTime = tick()
-    if currentTime - lastFarmTime >= 0.1 then
-        -- Farm Jumps EXP
-        if FarmToggles.FarmJumpsEXP then
-            farmJumpsEXP()
-        end
+    if charData and charData.Character and charData.Character:IsDescendantOf(Workspace) then
+        local currentTime = tick()
+        if currentTime - lastFarmTime >= 0.1 then
+            -- Farm Jumps EXP
+            if FarmToggles.FarmJumpsEXP then
+                farmJumpsEXP()
+            end
 
-        -- BoostPads
-        if FarmToggles.BoostPads then
-            activateBoostPads()
-        end
+            -- BoostPads
+            if FarmToggles.BoostPads then
+                activateBoostPads()
+            end
 
-        -- Farm Food
-        if FarmToggles.FarmFood then
-            farmFood()
-            sendDrops() -- เรียก SendDropsRemote พร้อมสลับเลข
-        end
+            -- Farm Food
+            if FarmToggles.FarmFood then
+                farmFood()
+                sendDrops() -- เรียก SendDropsRemote พร้อมสลับเลข
+            end
 
-        lastFarmTime = currentTime
+            lastFarmTime = currentTime
+        end
     end
 end)
-print("After farm loop")
-
