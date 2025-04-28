@@ -340,7 +340,7 @@ local function Remote_Lasso()
             local tameEvent = nearestPart:FindFirstChild("TameEvent")
             if tameEvent and tameEvent:IsA("RemoteEvent") then
                 local argsBegin = {
-                    [1] = "BeginAggro"
+                    [1] = "Begin"
                 }
                 tameEvent:FireServer(unpack(argsBegin))
                 task.wait(0.1)
