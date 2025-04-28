@@ -48,7 +48,7 @@ local noclipConnection = nil
 local lastTeleportTime = 0
 local eventFarmEnabled = false
 local lastLocationCheckTime = 0
-local checkInterval = 2 -- Time to wait at each location before checking again (in seconds)
+local checkInterval = 2
 
 local folderCreationTimes = {}
 local currentSpawnIndex = {}
@@ -270,7 +270,7 @@ local function safeTeleportToPart(targetPosition, currentPart)
                         if folder:IsA("Folder") and tonumber(folder.Name) then
                             local folderName = folder.Name
                             local creationTime = folderCreationTimes[folderName] or 0
-                            if currentTime - creationTime <= 15 then
+                            if currentTime - creationTime <= 10 then
                                 local success, result = pcall(function()
                                     local args = {
                                         [1] = {
@@ -382,15 +382,114 @@ local function start_Remote_Food()
     end)
 end
 
+local horseSpawnLocations = {
+    Horse = {
+        Vector3.new(984.6898193359375, 39.22307586669922, -518.1824340820312),
+        Vector3.new(818.211181640625, 114.06318664550781, -1181.5826416015625),
+        Vector3.new(-59.995033264160156, 33.38571548461914, -1437.0189208984375),
+        Vector3.new(79.7146987915039, 33.891783714294434, -358.8204650878906)
+    },
+    Pony = {
+        Vector3.new(1624.859130859375, 36.201045989990234, -1250.9278564453125),
+        Vector3.new(1884.79248046875, 86.3497314453125, -1540.4468994140625),
+        Vector3.new(2227.81005859375, 127.64604949951172, -1389.865478515625),
+        Vector3.new(2517.466796875, 129.38569641113281, -1129.2296142578125)
+    },
+    Equus = {
+        Vector3.new(-438.0946350097656, 33.38571548461914, -1356.0174560546875),
+        Vector3.new(-847.9989013671875, 33.38571548461914, -1315.01171875),
+        Vector3.new(-1153.6031494140625, 35.502039909362793, -926.2833862304688),
+        Vector3.new(-1438.77734375, 63.290462493896484, -1006.0366821289062)
+    },
+    Bisorse = {
+        Vector3.new(-683.4973754882812, 33.38571548461914, -1550.816650390625),
+        Vector3.new(-567.2005615234375, 33.38571548461914, -1803.713134765625),
+        Vector3.new(-840.0972290039062, 33.38571548461914, -1688.2135009765625),
+        Vector3.new(-1095.99609375, 33.38571548461914, -1557.0150146484375)
+    },
+    Caprine = {
+        Vector3.new(1960.3861083984375, 294.4034118652344, -1963.986572265625),
+        Vector3.new(2532.993896484375, 227.6634979248047, -1927.2379150390625),
+        Vector3.new(2230.986328125, 293.17193603515625, -2357.87548828125)
+    },
+    Unicorn = {
+        Vector3.new(-987.5292358398438, 87.77334594726562, -572.630126953125),
+        Vector3.new(-70.70305633544922, 102.58036041259766, -1016.5503540039062),
+        Vector3.new(182.00498962402344, 94.60444641113281, -1203.017333984375),
+        Vector3.new(2156.201416015625, 35.253561973571777, -728.2118530273438)
+    },
+    Gargoyle = {
+        Vector3.new(1603.007080078125, 36.1668701171875, -856.3812255859375),
+        Vector3.new(541.2142333984375, 122.05838012695312, -1205.2183837890625),
+        Vector3.new(209.0157012939453, 94.9813003540039, -957.6135864257812),
+        Vector3.new(-590.1075439453125, 78.375797271728516, -899.4979248046875)
+    },
+    Kelpie = {
+        Vector3.new(1154.5999755859375, 29.38571548461914, -1062.0999755859375),
+        Vector3.new(989.5, 31.42807674407959, -1022.5),
+        Vector3.new(1005.4000854492188, 29.08884048461914, -44.70001220703125),
+        Vector3.new(344.79998779296875, 29.38571548461914, 490.70001220703125)
+    },
+    Peryton = {
+        Vector3.new(1037.5689697265625, 34.385714530944824, -59.87628936767578),
+        Vector3.new(1355.152099609375, 38.43065643310547, -65.8502197265625),
+        Vector3.new(1422.689453125, 34.657703399658203, 184.85623168945312),
+        Vector3.new(1381.643310546875, 39.400794982910156, -384.83648681640625)
+    },
+    Fae = {
+        Vector3.new(1135.14208984375, 36.126983642578125, -1428.2923583984375),
+        Vector3.new(431.415283203125, 33.557772636413574, -1412.1160888671875),
+        Vector3.new(1658.6077880859375, 34.75033187866211, -448.96539306640625),
+        Vector3.new(-1298.1317138671875, 43.40003776550293, -898.4066162109375)
+    },
+    Plush = {
+    },
+    Flora = {
+        Vector3.new(1726.3236083984375, 291.7519226074219, -2615.569091796875),
+        Vector3.new(2159.229248046875, 251.445556640625, -1673.8619384765625),
+        Vector3.new(1414.741455078125, 90.96279907226562, -1780.8643798828125),
+        Vector3.new(2055.52490234375, 85.42382049560547, -1465.525390625)
+    },
+
+    Cybred = {
+    },
+    Celestial = {
+    },
+    Wolper = {
+    },
+    Saurequine = {
+    },
+    Alces = {
+    },
+    Pastrequine = {
+    },
+    Ghoulsteed = {
+    },
+    Fairy = {
+        Vector3.new(-1545.54052734375, 63.22039031982422, -413.19921875),
+        Vector3.new(-1712.9837646484375, 59.50642395019531, -360.1767272949219)
+    },
+    Gray = {
+        Vector3.new(633.1749267578125, 37.64652442932129, -1504.0126953125)
+    }
+}
+
 Section1_Tab1:AddDropdown({
     Name = "Select Horse",
-    Options = {"None", "Horse", "Fae", "Fairy", "Caprine", "Flora", "Gargoyle", "Gray", "Kelpie", "Peryton", "Pony", "Equus", "Bisorse", "Unicorn", "All"},
+    Options = {"None", "Horse", "Pony",
+                "Equus", "Bisorse", "Caprine",
+                "Unicorn", "Gargoyle", "Kelpie",
+                "Peryton", "Fae", "Plush",
+                "Flora", "Cybred", "Celestial",
+                "Wolper", "Saurequine", "Alces",
+                "Pastrequine", "Ghoulsteed", "Fairy",
+                "Gray", "All"},
     Default = "None",
     Callback = function(selected)
         selectedPart = selected
         lastTeleportedPart = nil
         currentSpawnIndex[selected] = 1
-        lastLocationCheckTime = 0 -- Reset check time when selecting a new horse
+        lastLocationCheckTime = 0
     end
 })
 
@@ -442,7 +541,7 @@ Section1_Tab1:AddToggle({
                             containerFrameLoop.Visible = false
                         end
 
-                        task.wait(0.5)
+                        task.wait(0.1)
                     end
                 end)
             else
