@@ -38,6 +38,18 @@ local RunService = game:GetService("RunService")
 local defaultGravity = Workspace.Gravity
 repeat wait() until game:IsLoaded()
 
+local selectedPart = "None"
+local teleportEnabled = false
+local autoSellEnabled = false
+local lastTeleportedPart = nil
+local Remote_Farm = false
+local guiCheckConnection = nil
+local noclipConnection = nil
+local lastTeleportTime = 0
+local eventFarmEnabled = false
+
+local folderCreationTimes = {}
+
 local function updateCharacterData()
     local success, result = pcall(function()
         local charactersFolder = Workspace:WaitForChild("Characters", 5)
@@ -59,35 +71,50 @@ local function updateCharacterData()
 end
 
 local charData = updateCharacterData()
+local function enableNoclip()
+    if noclipConnection then
+        return
+    end
+    noclipConnection = RunService.Stepped:Connect(function()
+        if charData and charData.Character and teleportEnabled then
+            for _, part in ipairs(charData.Character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = false
+                end
+            end
+        end
+    end)
+end
+
+local function disableNoclip()
+    if noclipConnection then
+        noclipConnection:Disconnect()
+        noclipConnection = nil
+        if charData and charData.Character then
+            for _, part in ipairs(charData.Character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = true
+                end
+            end
+        end
+    end
+end
+
 localPlayer.CharacterAdded:Connect(function()
     charData = updateCharacterData()
     if charData and charData.HumanoidRootPart then
         if teleportEnabled then
             Workspace.Gravity = 0
             charData.HumanoidRootPart.Anchored = true
-            print("Gravity set to 0 and HumanoidRootPart anchored on character respawn")
+            enableNoclip()
         else
             Workspace.Gravity = defaultGravity
             charData.HumanoidRootPart.Anchored = false
-            print("Gravity restored to default and HumanoidRootPart unanchored on character respawn: ", defaultGravity)
+            disableNoclip()
         end
-    else
-        warn("Cannot set gravity or anchor on respawn: charData or HumanoidRootPart missing")
     end
 end)
 
-local selectedPart = "None"
-local teleportEnabled = false
-local autoSellEnabled = false
-local lastTeleportedPart = nil
-local Remote_Farm = false
-local guiCheckConnection = nil
-local lastTeleportTime = 0 -- ตัวแปรควบคุมความถี่การวาร์ป
-
--- Table to store folder creation times
-local folderCreationTimes = {}
-
--- Monitor new folders in PlayerGui.Data.Animals
 local function monitorAnimalFolders()
     local success, animalsFolder = pcall(function()
         return localPlayer.PlayerGui:WaitForChild("Data", 5):WaitForChild("Animals", 5)
@@ -96,32 +123,25 @@ local function monitorAnimalFolders()
         animalsFolder.ChildAdded:Connect(function(child)
             if child:IsA("Folder") and tonumber(child.Name) then
                 folderCreationTimes[child.Name] = tick()
-                print("New folder detected: ", child.Name, " at time: ", folderCreationTimes[child.Name])
             end
         end)
         animalsFolder.ChildRemoved:Connect(function(child)
             if child:IsA("Folder") and tonumber(child.Name) then
                 folderCreationTimes[child.Name] = nil
-                print("Folder removed: ", child.Name)
             end
         end)
-    else
-        warn("Failed to access PlayerGui.Data.Animals for monitoring")
     end
 end
 
--- Start monitoring folders when the script loads
 monitorAnimalFolders()
 
 local function getNearestPart()
     local mobFolder = Workspace:FindFirstChild("MobFolder")
     if not mobFolder then
-        warn("MobFolder not found in workspace")
         return nil
     end
     local objects = mobFolder:GetChildren()
     if #objects == 0 then
-        warn("No objects found in workspace.MobFolder")
         return nil
     end
     local nearestPart = nil
@@ -141,33 +161,24 @@ local function getNearestPart()
                 end
             end
         end
-    else
-        warn("Player position not available or no part selected")
-    end
-    if not nearestPart then
-        warn("No valid parts found in workspace.MobFolder for selected part: ", selectedPart)
     end
     return nearestPart
 end
 
 local function safeTeleportToPart(targetPosition, currentPart)
     local success, errorMsg = pcall(function()
-        if charData and charData.Humanoid and charData.Humanoid.Health > 0 and charData.HumanoidRootPart and charData.HumanoidRootPart:IsDescendantOf(Workspace) then
+        if charData and charData.Humanoid and charData.HumanoidRootPart and charData.HumanoidRootPart:IsDescendantOf(Workspace) then
             local adjustedPosition = targetPosition + Vector3.new(0, -10, 0)
             charData.HumanoidRootPart.CFrame = CFrame.new(adjustedPosition)
-            
-            -- Check if this is a new part
             if lastTeleportedPart ~= currentPart then
                 charData.HumanoidRootPart.Anchored = false
-                task.wait(1) -- Wait for 1 second
+                task.wait(0.1)
                 if teleportEnabled and charData and charData.HumanoidRootPart and charData.HumanoidRootPart:IsDescendantOf(Workspace) then
                     charData.HumanoidRootPart.Anchored = true
                 end
             else
-                -- If not a new part, maintain the teleportEnabled state
                 charData.HumanoidRootPart.Anchored = teleportEnabled
             end
-            
             if teleportEnabled and autoSellEnabled then
                 local animalsFolder = localPlayer.PlayerGui:FindFirstChild("Data") and localPlayer.PlayerGui.Data:FindFirstChild("Animals")
                 if animalsFolder then
@@ -176,7 +187,7 @@ local function safeTeleportToPart(targetPosition, currentPart)
                         if folder:IsA("Folder") and tonumber(folder.Name) then
                             local folderName = folder.Name
                             local creationTime = folderCreationTimes[folderName] or 0
-                            if currentTime - creationTime <= 5 then -- Only sell folders created within 5 seconds
+                            if currentTime - creationTime <= 15 then
                                 local success, result = pcall(function()
                                     local args = {
                                         [1] = {
@@ -185,60 +196,39 @@ local function safeTeleportToPart(targetPosition, currentPart)
                                     }
                                     game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellSlotsRemote"):InvokeServer(unpack(args))
                                 end)
-                                if success then
-                                    print("Sold folder: ", folderName, " (created ", currentTime - creationTime, " seconds ago)")
-                                else
-                                    warn("Auto Sell failed for folder ", folderName, ": ", result)
-                                end
-                            else
-                                print("Skipped folder: ", folderName, " (older than 5 seconds)")
                             end
                         end
                     end
-                else
-                    warn("Auto Sell: PlayerGui.Data.Animals not found")
                 end
             end
             lastTeleportedPart = currentPart
-        else
-            warn("Character or Humanoid not valid for teleport")
         end
     end)
-    if not success then
-        warn("Teleport to Part failed: ", errorMsg)
-    end
 end
 
+local lastProcessedPart = nil
 local function Remote_Lasso()
     local nearestPart = getNearestPart()
     if nearestPart and nearestPart:IsDescendantOf(Workspace) then
         local success, result = pcall(function()
             local tameEvent = nearestPart:FindFirstChild("TameEvent")
             if tameEvent and tameEvent:IsA("RemoteEvent") then
-                local argsBegin = {
-                    [1] = "BeginAggro"
-                }
-                tameEvent:FireServer(unpack(argsBegin))
-                print("Called BeginAggro for Part: ", nearestPart.Name)
-                task.wait(0.1)
+                if nearestPart ~= lastProcessedPart then
+                    local argsBegin = {
+                        [1] = "BeginAggro"
+                    }
+                    tameEvent:FireServer(unpack(argsBegin))
+                    lastProcessedPart = nearestPart
+                    task.wait(0.1)
+                end
                 if nearestPart:IsDescendantOf(Workspace) then
                     local argsFeed = {
                         [1] = "SuccessfulFeed"
                     }
                     tameEvent:FireServer(unpack(argsFeed))
-                    print("Called SuccessfulFeed for Part: ", nearestPart.Name)
-                else
-                    warn("Part was removed before SuccessfulFeed: ", nearestPart.Name)
                 end
-            else
-                warn("TameEvent not found in Part: ", nearestPart.Name)
             end
         end)
-        if not success then
-            warn("Failed to interact with Part: ", result)
-        end
-    else
-        warn("Cannot interact: no valid part found")
     end
 end
 
@@ -248,7 +238,7 @@ local function start_Remote_Lasso()
             if selectedPart ~= "None" then
                 Remote_Lasso()
             end
-            task.wait(0.5)
+            task.wait(0.1)
         end
     end)
 end
@@ -259,30 +249,22 @@ local function Remote_Food()
         local success, result = pcall(function()
             local tameEvent = nearestPart:FindFirstChild("TameEvent")
             if tameEvent and tameEvent:IsA("RemoteEvent") then
-                local argsBegin = {
-                    [1] = "Begin"
-                }
-                tameEvent:FireServer(unpack(argsBegin))
-                print("Called BeginAggro for Part: ", nearestPart.Name)
-                task.wait(0.5)
+                if nearestPart ~= lastProcessedPart then
+                    local argsBegin = {
+                        [1] = "Begin"
+                    }
+                    tameEvent:FireServer(unpack(argsBegin))
+                    lastProcessedPart = nearestPart
+                    task.wait(0.1)
+                end
                 if nearestPart:IsDescendantOf(Workspace) then
                     local argsFeed = {
                         [1] = "SuccessfulFeed"
                     }
                     tameEvent:FireServer(unpack(argsFeed))
-                    print("Called SuccessfulFeed for Part: ", nearestPart.Name)
-                else
-                    warn("Part was removed before SuccessfulFeed: ", nearestPart.Name)
                 end
-            else
-                warn("TameEvent not found in Part: ", nearestPart.Name)
             end
         end)
-        if not success then
-            warn("Failed to interact with Part: ", result)
-        end
-    else
-        warn("Cannot interact: no valid part found")
     end
 end
 
@@ -292,19 +274,18 @@ local function start_Remote_Food()
             if selectedPart ~= "None" then
                 Remote_Food()
             end
-            task.wait(0.5)
+            task.wait(1)
         end
     end)
 end
 
 Section1_Tab1:AddDropdown({
     Name = "Select Horse",
-    Options = {"None", "Horse", "Fae", "Fairy", "Flora", "Gargoyle", "Gray", "Kelpie", "Peryton", "Unicorn", "All"},
+    Options = {"None", "Horse", "Fae", "Fairy", "Flora", "Gargoyle", "Gray", "Kelpie", "Peryton", "Equus", "Unicorn", "All"},
     Default = "None",
     Callback = function(selected)
         selectedPart = selected
         lastTeleportedPart = nil
-        print("Selected Part to Lasso changed to: ", selected)
     end
 })
 
@@ -322,13 +303,6 @@ Section1_Tab1:AddToggle({
                 end)
                 if successPrompt and promptFrame and promptFrame.Visible then
                     promptFrame.Visible = false
-                    print("PromptFrame.Visible set to false")
-                elseif not successPrompt then
-                    warn("Failed to access PromptGui.PromptFrame: ", promptFrame)
-                elseif promptFrame and not promptFrame.Visible then
-                    print("PromptFrame is already invisible")
-                else
-                    warn("PromptGui.PromptFrame not found")
                 end
 
                 local successContainer, containerFrame = pcall(function()
@@ -337,17 +311,11 @@ Section1_Tab1:AddToggle({
                 end)
                 if successContainer and containerFrame and containerFrame.Visible then
                     containerFrame.Visible = false
-                    print("DisplayAnimalGui.ContainerFrame.Visible set to false")
-                elseif not successContainer then
-                    warn("Failed to access DisplayAnimalGui.ContainerFrame: ", containerFrame)
-                elseif containerFrame and not containerFrame.Visible then
-                    print("DisplayAnimalGui.ContainerFrame is already invisible")
-                else
-                    warn("DisplayAnimalGui.ContainerFrame not found")
                 end
 
                 Workspace.Gravity = 0
                 charData.HumanoidRootPart.Anchored = true
+                enableNoclip()
                 Remote_Farm = true
                 start_Remote_Lasso()
                 guiCheckConnection = task.spawn(function()
@@ -358,13 +326,6 @@ Section1_Tab1:AddToggle({
                         end)
                         if successPromptLoop and promptFrameLoop and promptFrameLoop.Visible then
                             promptFrameLoop.Visible = false
-                            print("PromptFrame.Visible set to false in loop")
-                        elseif not successPromptLoop then
-                            warn("Failed to access PromptGui.PromptFrame in loop: ", promptFrameLoop)
-                        elseif promptFrameLoop and not promptFrameLoop.Visible then
-                            print("PromptFrame is already invisible in loop")
-                        else
-                            warn("PromptGui.PromptFrame not found in loop")
                         end
 
                         local successContainerLoop, containerFrameLoop = pcall(function()
@@ -373,56 +334,32 @@ Section1_Tab1:AddToggle({
                         end)
                         if successContainerLoop and containerFrameLoop and containerFrameLoop.Visible then
                             containerFrameLoop.Visible = false
-                            print("DisplayAnimalGui.ContainerFrame.Visible set to false in loop")
-                        elseif not successContainerLoop then
-                            warn("Failed to access DisplayAnimalGui.ContainerFrame in loop: ", containerFrameLoop)
-                        elseif containerFrameLoop and not containerFrameLoop.Visible then
-                            print("DisplayAnimalGui.ContainerFrame is already invisible in loop")
-                        else
-                            warn("DisplayAnimalGui.ContainerFrame not found in loop")
                         end
 
                         task.wait(0.5)
                     end
                 end)
-
-                print("Teleport to Part enabled")
             else
                 Workspace.Gravity = defaultGravity
                 if charData and charData.HumanoidRootPart then
-                    charData.HumanoidRootPart.Anchored = false
-                    -- Tween character 60 units upward
-                    local TweenService = game:GetService("TweenService")
-                    local currentPosition = charData.HumanoidRootPart.Position
-                    local targetPosition = currentPosition + Vector3.new(0, 60, 0)
-                    local tweenInfo = TweenInfo.new(
-                        1, -- Duration (1 second)
-                        Enum.EasingStyle.Linear, -- Easing style
-                        Enum.EasingDirection.Out -- Easing direction
-                    )
-                    local tween = TweenService:Create(
-                        charData.HumanoidRootPart,
-                        tweenInfo,
-                        {CFrame = CFrame.new(targetPosition)}
+                    local targetCFrame = CFrame.new(
+                        Vector3.new(-36.923317, 22.54938221, -23.4148331)
                     )
                     local success, errorMsg = pcall(function()
-                        tween:Play()
+                        charData.HumanoidRootPart.Anchored = true
+                        charData.HumanoidRootPart.CFrame = targetCFrame
+                        task.wait(0.1)
+                        charData.HumanoidRootPart.Anchored = false
                     end)
-                    if not success then
-                        warn("Failed to play tween: ", errorMsg)
-                        -- Fallback to instant teleport if tween fails
-                        charData.HumanoidRootPart.CFrame = CFrame.new(targetPosition)
-                    end
+                    disableNoclip()
                 end
                 Remote_Farm = false
                 if guiCheckConnection then
                     task.cancel(guiCheckConnection)
                     guiCheckConnection = nil
                 end
-                print("Teleport to Part disabled")
             end
         else
-            warn("Cannot enable teleport: charData or HumanoidRootPart missing")
             teleportEnabled = false
         end
     end
@@ -442,13 +379,6 @@ Section1_Tab1:AddToggle({
                 end)
                 if successPrompt and promptFrame and promptFrame.Visible then
                     promptFrame.Visible = false
-                    print("PromptFrame.Visible set to false")
-                elseif not successPrompt then
-                    warn("Failed to access PromptGui.PromptFrame: ", promptFrame)
-                elseif promptFrame and not promptFrame.Visible then
-                    print("PromptFrame is already invisible")
-                else
-                    warn("PromptGui.PromptFrame not found")
                 end
 
                 local successContainer, containerFrame = pcall(function()
@@ -457,17 +387,11 @@ Section1_Tab1:AddToggle({
                 end)
                 if successContainer and containerFrame and containerFrame.Visible then
                     containerFrame.Visible = false
-                    print("DisplayAnimalGui.ContainerFrame.Visible set to false")
-                elseif not successContainer then
-                    warn("Failed to access DisplayAnimalGui.ContainerFrame: ", containerFrame)
-                elseif containerFrame and not containerFrame.Visible then
-                    print("DisplayAnimalGui.ContainerFrame is already invisible")
-                else
-                    warn("DisplayAnimalGui.ContainerFrame not found")
                 end
 
                 Workspace.Gravity = 0
                 charData.HumanoidRootPart.Anchored = true
+                enableNoclip()
                 Remote_Farm = true
                 start_Remote_Food()
                 guiCheckConnection = task.spawn(function()
@@ -478,13 +402,6 @@ Section1_Tab1:AddToggle({
                         end)
                         if successPromptLoop and promptFrameLoop and promptFrameLoop.Visible then
                             promptFrameLoop.Visible = false
-                            print("PromptFrame.Visible set to false in loop")
-                        elseif not successPromptLoop then
-                            warn("Failed to access PromptGui.PromptFrame in loop: ", promptFrameLoop)
-                        elseif promptFrameLoop and not promptFrameLoop.Visible then
-                            print("PromptFrame is already invisible in loop")
-                        else
-                            warn("PromptGui.PromptFrame not found in loop")
                         end
 
                         local successContainerLoop, containerFrameLoop = pcall(function()
@@ -493,56 +410,32 @@ Section1_Tab1:AddToggle({
                         end)
                         if successContainerLoop and containerFrameLoop and containerFrameLoop.Visible then
                             containerFrameLoop.Visible = false
-                            print("DisplayAnimalGui.ContainerFrame.Visible set to false in loop")
-                        elseif not successContainerLoop then
-                            warn("Failed to access DisplayAnimalGui.ContainerFrame in loop: ", containerFrameLoop)
-                        elseif containerFrameLoop and not containerFrameLoop.Visible then
-                            print("DisplayAnimalGui.ContainerFrame is already invisible in loop")
-                        else
-                            warn("DisplayAnimalGui.ContainerFrame not found in loop")
                         end
 
                         task.wait(0.5)
                     end
                 end)
-
-                print("Teleport to Part enabled")
             else
                 Workspace.Gravity = defaultGravity
                 if charData and charData.HumanoidRootPart then
-                    charData.HumanoidRootPart.Anchored = false
-                    -- Tween character 20 units upward
-                    local TweenService = game:GetService("TweenService")
-                    local currentPosition = charData.HumanoidRootPart.Position
-                    local targetPosition = currentPosition + Vector3.new(0, 20, 0)
-                    local tweenInfo = TweenInfo.new(
-                        1, -- Duration (1 second)
-                        Enum.EasingStyle.Linear, -- Easing style
-                        Enum.EasingDirection.Out -- Easing direction
-                    )
-                    local tween = TweenService:Create(
-                        charData.HumanoidRootPart,
-                        tweenInfo,
-                        {CFrame = CFrame.new(targetPosition)}
+                    local targetCFrame = CFrame.new(
+                        Vector3.new(-36.923317, 22.54938221, -23.4148331)
                     )
                     local success, errorMsg = pcall(function()
-                        tween:Play()
+                        charData.HumanoidRootPart.Anchored = true
+                        charData.HumanoidRootPart.CFrame = targetCFrame
+                        task.wait(0.1)
+                        charData.HumanoidRootPart.Anchored = false
                     end)
-                    if not success then
-                        warn("Failed to play tween: ", errorMsg)
-                        -- Fallback to instant teleport if tween fails
-                        charData.HumanoidRootPart.CFrame = CFrame.new(targetPosition)
-                    end
+                    disableNoclip()
                 end
                 Remote_Farm = false
                 if guiCheckConnection then
                     task.cancel(guiCheckConnection)
                     guiCheckConnection = nil
                 end
-                print("Teleport to Part disabled")
             end
         else
-            warn("Cannot enable teleport: charData or HumanoidRootPart missing")
             teleportEnabled = false
         end
     end
@@ -553,7 +446,6 @@ Section1_Tab1:AddToggle({
     Default = false,
     Callback = function(state)
         autoSellEnabled = state
-        print("Auto Sell toggled: ", state and "Enabled" or "Disabled")
     end
 })
 
@@ -561,7 +453,7 @@ local teleportConnection
 teleportConnection = RunService.Heartbeat:Connect(function()
     if teleportEnabled and selectedPart ~= "None" and charData and charData.Humanoid and charData.HumanoidRootPart and charData.HumanoidRootPart:IsDescendantOf(Workspace) then
         local currentTime = tick()
-        if currentTime - lastTeleportTime >= 0.1 then -- วาร์ปทุก 0.1 วินาที
+        if currentTime - lastTeleportTime >= 0.1 then
             local nearestPart = getNearestPart()
             if nearestPart and nearestPart:IsDescendantOf(Workspace) then
                 safeTeleportToPart(nearestPart.Position, nearestPart)
@@ -587,6 +479,18 @@ local dropCounter = 1
 local lastFarmTime = 0
 local selectedFood = "SilkBush"
 
+local foodTeleportPositions = {
+    AppleBarrel = Vector3.new(577.5712890625, 23.5939579010009766, -17.890897750854492),
+    FoodPallet = Vector3.new(577.5712890625, 23.5939579010009766, -17.890897750854492),
+    BerryBush = Vector3.new(798.4374389648438, 49.213836669921875, -120.74653625488281),
+    FallenTree = Vector3.new(523.5050659179688, 75.62639617919922, -844.544677734375),
+    LargeBerryBush = Vector3.new(1509.814697265625, 294.0887451171875, -268.6426696777344),
+    StoneDeposit = Vector3.new(1664.91796875, 47.65071678161621, -1449.3878173828125),
+    Stump = Vector3.new(577.5712890625, 23.5939579010009766, -17.890897750854492),
+    Treasure = Vector3.new(570.73388671875, 17.773395538330078, -1131.123291015625),
+    SilkBush = Vector3.new(-1333.2440185546875, 47.825965881347656, -581.406982421875)
+}
+
 local function farmJumpsEXP()
     local success, errorMsg = pcall(function()
         local args = {
@@ -594,18 +498,12 @@ local function farmJumpsEXP()
         }
         game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("JumpedObstacleRemote"):FireServer(unpack(args))
     end)
-    if not success then
-        warn("Farm Jumps EXP failed: ", errorMsg)
-    end
 end
 
 local function activateBoostPads()
     local success, errorMsg = pcall(function()
         Workspace:WaitForChild("BoostPads"):WaitForChild("Speed"):WaitForChild("RemoteEvent"):FireServer()
     end)
-    if not success then
-        warn("BoostPads activation failed: ", errorMsg)
-    end
 end
 
 local function farmFood()
@@ -614,25 +512,31 @@ local function farmFood()
             "AppleBarrel", "BerryBush", "FallenTree", "FoodPallet",
             "LargeBerryBush", "StoneDeposit", "Stump", "Treasure", "SilkBush"
         } or {selectedFood}
+
         for _, resource in ipairs(resources) do
-            local args1 = {
-                [1] = 5,
-                [2] = true
-            }
-            Workspace:WaitForChild("Interactions"):WaitForChild("Resource"):WaitForChild(resource):WaitForChild("RemoteEvent"):InvokeServer(unpack(args1))
-            local args2 = {
-                [1] = localPlayer.Character and localPlayer.Character.Animals:FindFirstChild("3")
-            }
-            if args2[1] then
-                Workspace:WaitForChild("Interactions"):WaitForChild("Resource"):WaitForChild(resource):WaitForChild("RemoteEvent"):InvokeServer(unpack(args2))
-            else
-                warn("Animal ID 3 not found for resource ", resource)
+            local resourceFolder = Workspace:FindFirstChild("Interactions") and 
+                                Workspace.Interactions:FindFirstChild("Resource") and 
+                                Workspace.Interactions.Resource:FindFirstChild(resource)
+            
+            if resourceFolder then
+                local remoteEvent = resourceFolder:FindFirstChild("RemoteEvent")
+                if remoteEvent then
+                    local args1 = {
+                        [1] = 5,
+                        [2] = true
+                    }
+                    remoteEvent:InvokeServer(unpack(args1))
+
+                    local args2 = {
+                        [1] = localPlayer.Character and localPlayer.Character.Animals:FindFirstChild("3")
+                    }
+                    if args2[1] then
+                        remoteEvent:InvokeServer(unpack(args2))
+                    end
+                end
             end
         end
     end)
-    if not success then
-        warn("Farm Food failed for resource ", selectedFood, ": ", errorMsg)
-    end
 end
 
 local function sendDrops()
@@ -646,9 +550,53 @@ local function sendDrops()
             dropCounter = 1
         end
     end)
-    if not success then
-        warn("SendDropsRemote failed: ", errorMsg)
+end
+
+local function teleportToPosition(position)
+    local success, errorMsg = pcall(function()
+        if charData and charData.Humanoid and charData.Humanoid.Health > 0 and charData.HumanoidRootPart and charData.HumanoidRootPart:IsDescendantOf(Workspace) then
+            charData.HumanoidRootPart.CFrame = CFrame.new(position)
+        end
+    end)
+end
+
+local function startAllFoodTeleport()
+    task.spawn(function()
+        while FarmToggles.FarmFood and charData and charData.HumanoidRootPart and charData.HumanoidRootPart:IsDescendantOf(Workspace) do
+            for food, position in pairs(foodTeleportPositions) do
+                if FarmToggles.FarmFood then
+                    teleportToPosition(position)
+                    task.wait(30)
+                else
+                    break
+                end
+            end
+        end
+    end)
+end
+
+local function teleportCurrencyNodes()
+    local success, currencyNodes = pcall(function()
+        return Workspace:WaitForChild("Interactions"):WaitForChild("CurrencyNodes")
+    end)
+    if success and currencyNodes then
+        for _, part in ipairs(currencyNodes:GetChildren()) do
+            if part:IsA("BasePart") and part:IsDescendantOf(Workspace) and charData and charData.HumanoidRootPart then
+                local success, result = pcall(function()
+                    part.CFrame = charData.HumanoidRootPart.CFrame
+                end)
+            end
+        end
     end
+end
+
+local function startEventFarm()
+    task.spawn(function()
+        while eventFarmEnabled and charData and charData.HumanoidRootPart and charData.HumanoidRootPart:IsDescendantOf(Workspace) do
+            teleportCurrencyNodes()
+            task.wait(0.1)
+        end
+    end)
 end
 
 Section1_Tab2:AddToggle({
@@ -656,7 +604,6 @@ Section1_Tab2:AddToggle({
     Default = false,
     Callback = function(state)
         FarmToggles.FarmJumpsEXP = state
-        print("Farm Jumps EXP toggled: ", state and "Enabled" or "Disabled")
     end
 })
 
@@ -665,26 +612,70 @@ Section1_Tab2:AddToggle({
     Default = false,
     Callback = function(state)
         FarmToggles.BoostPads = state
-        print("BoostPads toggled: ", state and "Enabled" or "Disabled")
+    end
+})
+
+Section1_Tab2:AddToggle({
+    Name = "Event Farm",
+    Default = false,
+    Callback = function(state)
+        eventFarmEnabled = state
+        if state then
+            startEventFarm()
+        end
     end
 })
 
 Section2_Tab2:AddDropdown({
     Name = "Select Food",
-    Options = {"AppleBarrel", "BerryBush", "FallenTree", "FoodPallet", "LargeBerryBush", "StoneDeposit", "Stump", "Treasure", "SilkBush", "All"},
+    Options = {"AppleBarrel", "FoodPallet", "BerryBush", "FallenTree", "LargeBerryBush", "StoneDeposit", "Stump", "Treasure", "SilkBush", "All"},
     Default = "SilkBush",
     Callback = function(selected)
         selectedFood = selected
-        print("Selected Food changed to: ", selected)
     end
 })
 
 Section2_Tab2:AddToggle({
-    Name = "Farm Food",
+    Name = "Farm Food while Catching Horses",
     Default = false,
     Callback = function(state)
         FarmToggles.FarmFood = state
-        print("Farm Food toggled: ", state and "Enabled" or "Disabled")
+        if state and charData and charData.HumanoidRootPart then
+            if selectedFood == "All" then
+                startAllFoodTeleport()
+            else
+                local position = foodTeleportPositions[selectedFood]
+                if position then
+                    teleportToPosition(position)
+                end
+            end
+        end
+    end
+})
+
+Section2_Tab2:AddToggle({
+    Name = "Farm Food Only",
+    Default = false,
+    Callback = function(state)
+        FarmToggles.FarmFood = state
+        if state and charData and charData.HumanoidRootPart then
+            if selectedFood == "All" then
+                startAllFoodTeleport()
+            else
+                local position = foodTeleportPositions[selectedFood]
+                if position then
+                    teleportToPosition(position)
+                end
+            end
+        end
+    end
+})
+
+Section2_Tab2:AddToggle({
+    Name = "Farm DailyChest and Shovel",
+    Default = false,
+    Callback = function(state)
+        
     end
 })
 
@@ -706,3 +697,4 @@ RunService.Heartbeat:Connect(function()
         end
     end
 end)
+
