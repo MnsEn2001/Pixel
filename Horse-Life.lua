@@ -726,12 +726,20 @@ local function teleportCurrencyNodes()
     local success, currencyNodes = pcall(function()
         return Workspace:WaitForChild("Interactions"):WaitForChild("CurrencyNodes")
     end)
-    if success and currencyNodes then
+    if success and currencyNodes and charData and charData.HumanoidRootPart then
+        local playerCFrame = charData.HumanoidRootPart.CFrame
+        local forwardVector = playerCFrame.LookVector
+        local frontPosition = playerCFrame.Position + (forwardVector * 10) -- ด้านหน้า 10 หน่วย
+
         for _, part in ipairs(currencyNodes:GetChildren()) do
-            if part:IsA("BasePart") and part:IsDescendantOf(Workspace) and charData and charData.HumanoidRootPart then
+            if part:IsA("BasePart") and part:IsDescendantOf(Workspace) then
                 local success, result = pcall(function()
-                    part.CFrame = charData.HumanoidRootPart.CFrame
+                    -- ย้ายอ็อบเจ็กต์ไปด้านหน้า 10 หน่วยทันที
+                    part.CFrame = CFrame.new(frontPosition)
                 end)
+                if not success then
+                    warn("Error moving part: ", result)
+                end
             end
         end
     end
@@ -741,7 +749,8 @@ local function startEventFarm()
     task.spawn(function()
         while eventFarmEnabled and charData and charData.HumanoidRootPart and charData.HumanoidRootPart:IsDescendantOf(Workspace) do
             teleportCurrencyNodes()
-            task.wait(0.1)
+            -- รัวขึ้นโดยรอ 1 เฟรม (~0.016 วินาทีที่ 60 FPS)
+            RunService.Heartbeat:Wait()
         end
     end)
 end
