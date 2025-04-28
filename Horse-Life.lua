@@ -47,8 +47,86 @@ local guiCheckConnection = nil
 local noclipConnection = nil
 local lastTeleportTime = 0
 local eventFarmEnabled = false
+local lastLocationCheckTime = 0
+local checkInterval = 2 -- Time to wait at each location before checking again (in seconds)
 
 local folderCreationTimes = {}
+local currentSpawnIndex = {}
+
+local horseSpawnLocations = {
+    Horse = {
+        Vector3.new(984.6898193359375, 39.22307586669922, -518.1824340820312),
+        Vector3.new(818.211181640625, 114.06318664550781, -1181.5826416015625),
+        Vector3.new(-59.995033264160156, 33.38571548461914, -1437.0189208984375),
+        Vector3.new(79.7146987915039, 33.891783714294434, -358.8204650878906)
+    },
+    Fae = {
+        Vector3.new(1135.14208984375, 36.126983642578125, -1428.2923583984375),
+        Vector3.new(431.415283203125, 33.557772636413574, -1412.1160888671875),
+        Vector3.new(1658.6077880859375, 34.75033187866211, -448.96539306640625),
+        Vector3.new(-1298.1317138671875, 43.40003776550293, -898.4066162109375)
+    },
+    Fairy = {
+        Vector3.new(-1545.54052734375, 63.22039031982422, -413.19921875),
+        Vector3.new(-1712.9837646484375, 59.50642395019531, -360.1767272949219)
+    },
+    Caprine = {
+        Vector3.new(1960.3861083984375, 294.4034118652344, -1963.986572265625),
+        Vector3.new(2532.993896484375, 227.6634979248047, -1927.2379150390625),
+        Vector3.new(2230.986328125, 293.17193603515625, -2357.87548828125)
+    },
+    Flora = {
+        Vector3.new(1726.3236083984375, 291.7519226074219, -2615.569091796875),
+        Vector3.new(2159.229248046875, 251.445556640625, -1673.8619384765625),
+        Vector3.new(1414.741455078125, 90.96279907226562, -1780.8643798828125),
+        Vector3.new(2055.52490234375, 85.42382049560547, -1465.525390625)
+    },
+    Gargoyle = {
+        Vector3.new(1603.007080078125, 36.1668701171875, -856.3812255859375),
+        Vector3.new(541.2142333984375, 122.05838012695312, -1205.2183837890625),
+        Vector3.new(209.0157012939453, 94.9813003540039, -957.6135864257812),
+        Vector3.new(-590.1075439453125, 78.375797271728516, -899.4979248046875)
+    },
+    Gray = {
+        Vector3.new(633.1749267578125, 37.64652442932129, -1504.0126953125)
+    },
+    Kelpie = {
+        Vector3.new(1154.5999755859375, 29.38571548461914, -1062.0999755859375),
+        Vector3.new(989.5, 31.42807674407959, -1022.5),
+        Vector3.new(1005.4000854492188, 29.08884048461914, -44.70001220703125),
+        Vector3.new(344.79998779296875, 29.38571548461914, 490.70001220703125)
+    },
+    Peryton = {
+        Vector3.new(1037.5689697265625, 34.385714530944824, -59.87628936767578),
+        Vector3.new(1355.152099609375, 38.43065643310547, -65.8502197265625),
+        Vector3.new(1422.689453125, 34.657703399658203, 184.85623168945312),
+        Vector3.new(1381.643310546875, 39.400794982910156, -384.83648681640625)
+    },
+    Pony = {
+        Vector3.new(1624.859130859375, 36.201045989990234, -1250.9278564453125),
+        Vector3.new(1884.79248046875, 86.3497314453125, -1540.4468994140625),
+        Vector3.new(2227.81005859375, 127.64604949951172, -1389.865478515625),
+        Vector3.new(2517.466796875, 129.38569641113281, -1129.2296142578125)
+    },
+    Equus = {
+        Vector3.new(-438.0946350097656, 33.38571548461914, -1356.0174560546875),
+        Vector3.new(-847.9989013671875, 33.38571548461914, -1315.01171875),
+        Vector3.new(-1153.6031494140625, 35.502039909362793, -926.2833862304688),
+        Vector3.new(-1438.77734375, 63.290462493896484, -1006.0366821289062)
+    },
+    Bisorse = {
+        Vector3.new(-683.4973754882812, 33.38571548461914, -1550.816650390625),
+        Vector3.new(-567.2005615234375, 33.38571548461914, -1803.713134765625),
+        Vector3.new(-840.0972290039062, 33.38571548461914, -1688.2135009765625),
+        Vector3.new(-1095.99609375, 33.38571548461914, -1557.0150146484375)
+    },
+    Unicorn = {
+        Vector3.new(-987.5292358398438, 87.77334594726562, -572.630126953125),
+        Vector3.new(-70.70305633544922, 102.58036041259766, -1016.5503540039062),
+        Vector3.new(182.00498962402344, 94.60444641113281, -1203.017333984375),
+        Vector3.new(2156.201416015625, 35.253561973571777, -728.2118530273438)
+    }
+}
 
 local function updateCharacterData()
     local success, result = pcall(function()
@@ -149,12 +227,12 @@ local function getNearestPart()
     local playerPos = charData and charData.HumanoidRootPart and charData.HumanoidRootPart.Position
     if playerPos and selectedPart ~= "None" then
         for _, obj in ipairs(objects) do
-            if obj:IsA("BasePart") and obj:IsDescendantOf(Workspace) then
+            if obj:IsA("BasePart") and obj:IsDescendantOf(Workspace) and obj.Position then
                 local partName = obj.Name
                 if selectedPart == "All" or partName == selectedPart then
                     local partPos = obj.Position
                     local distance = (playerPos - partPos).Magnitude
-                    if distance < minDistance then
+                    if distance < minDistance and distance < 1000 then
                         minDistance = distance
                         nearestPart = obj
                     end
@@ -167,12 +245,17 @@ end
 
 local function safeTeleportToPart(targetPosition, currentPart)
     local success, errorMsg = pcall(function()
-        if charData and charData.Humanoid and charData.HumanoidRootPart and charData.HumanoidRootPart:IsDescendantOf(Workspace) then
+        if charData and charData.Humanoid and charData.HumanoidRootPart and charData.HumanoidRootPart:IsDescendantOf(Workspace) and charData.Humanoid.Health > 0 then
+            local playerPos = charData.HumanoidRootPart.Position
+            local distance = (playerPos - targetPosition).Magnitude
+            if distance > 5000 then
+                return
+            end
             local adjustedPosition = targetPosition + Vector3.new(0, -10, 0)
             charData.HumanoidRootPart.CFrame = CFrame.new(adjustedPosition)
             if lastTeleportedPart ~= currentPart then
                 charData.HumanoidRootPart.Anchored = false
-                task.wait(0.1)
+                task.wait(0.5)
                 if teleportEnabled and charData and charData.HumanoidRootPart and charData.HumanoidRootPart:IsDescendantOf(Workspace) then
                     charData.HumanoidRootPart.Anchored = true
                 end
@@ -206,21 +289,44 @@ local function safeTeleportToPart(targetPosition, currentPart)
     end)
 end
 
-local lastProcessedPart = nil
+local function teleportToNextSpawnLocation()
+    if selectedPart == "None" or selectedPart == "All" then
+        return false
+    end
+    local spawnLocations = horseSpawnLocations[selectedPart]
+    if not spawnLocations or #spawnLocations == 0 then
+        warn("No spawn locations defined for: ", selectedPart)
+        return false
+    end
+    -- Initialize spawn index for this horse if not set
+    if not currentSpawnIndex[selectedPart] then
+        currentSpawnIndex[selectedPart] = 1
+    end
+    -- Get the current spawn location
+    local targetPosition = spawnLocations[currentSpawnIndex[selectedPart]]
+    if targetPosition then
+        safeTeleportToPart(targetPosition, nil)
+        -- Move to the next spawn location (cycle back to 1 if at the end)
+        currentSpawnIndex[selectedPart] = currentSpawnIndex[selectedPart] + 1
+        if currentSpawnIndex[selectedPart] > #spawnLocations then
+            currentSpawnIndex[selectedPart] = 1
+        end
+        return true
+    end
+    return false
+end
+
 local function Remote_Lasso()
     local nearestPart = getNearestPart()
     if nearestPart and nearestPart:IsDescendantOf(Workspace) then
         local success, result = pcall(function()
             local tameEvent = nearestPart:FindFirstChild("TameEvent")
             if tameEvent and tameEvent:IsA("RemoteEvent") then
-                if nearestPart ~= lastProcessedPart then
-                    local argsBegin = {
-                        [1] = "BeginAggro"
-                    }
-                    tameEvent:FireServer(unpack(argsBegin))
-                    lastProcessedPart = nearestPart
-                    task.wait(0.1)
-                end
+                local argsBegin = {
+                    [1] = "Begin"
+                }
+                tameEvent:FireServer(unpack(argsBegin))
+                task.wait(0.1)
                 if nearestPart:IsDescendantOf(Workspace) then
                     local argsFeed = {
                         [1] = "SuccessfulFeed"
@@ -249,14 +355,11 @@ local function Remote_Food()
         local success, result = pcall(function()
             local tameEvent = nearestPart:FindFirstChild("TameEvent")
             if tameEvent and tameEvent:IsA("RemoteEvent") then
-                if nearestPart ~= lastProcessedPart then
-                    local argsBegin = {
-                        [1] = "Begin"
-                    }
-                    tameEvent:FireServer(unpack(argsBegin))
-                    lastProcessedPart = nearestPart
-                    task.wait(0.1)
-                end
+                local argsBegin = {
+                    [1] = "Begin"
+                }
+                tameEvent:FireServer(unpack(argsBegin))
+                task.wait(0.5)
                 if nearestPart:IsDescendantOf(Workspace) then
                     local argsFeed = {
                         [1] = "SuccessfulFeed"
@@ -274,18 +377,20 @@ local function start_Remote_Food()
             if selectedPart ~= "None" then
                 Remote_Food()
             end
-            task.wait(1)
+            task.wait(0.5)
         end
     end)
 end
 
 Section1_Tab1:AddDropdown({
     Name = "Select Horse",
-    Options = {"None", "Horse", "Fae", "Fairy", "Flora", "Gargoyle", "Gray", "Kelpie", "Peryton", "Equus", "Unicorn", "All"},
+    Options = {"None", "Horse", "Fae", "Fairy", "Caprine", "Flora", "Gargoyle", "Gray", "Kelpie", "Peryton", "Pony", "Equus", "Bisorse", "Unicorn", "All"},
     Default = "None",
     Callback = function(selected)
         selectedPart = selected
         lastTeleportedPart = nil
+        currentSpawnIndex[selected] = 1
+        lastLocationCheckTime = 0 -- Reset check time when selecting a new horse
     end
 })
 
@@ -295,6 +400,7 @@ Section1_Tab1:AddToggle({
     Callback = function(state)
         teleportEnabled = state
         lastTeleportedPart = nil
+        lastLocationCheckTime = 0 -- Reset check time when toggling
         if charData and charData.HumanoidRootPart and charData.Humanoid then
             if state then
                 local successPrompt, promptFrame = pcall(function()
@@ -371,6 +477,7 @@ Section1_Tab1:AddToggle({
     Callback = function(state)
         teleportEnabled = state
         lastTeleportedPart = nil
+        lastLocationCheckTime = 0 -- Reset check time when toggling
         if charData and charData.HumanoidRootPart and charData.Humanoid then
             if state then
                 local successPrompt, promptFrame = pcall(function()
@@ -452,12 +559,27 @@ Section1_Tab1:AddToggle({
 local teleportConnection
 teleportConnection = RunService.Heartbeat:Connect(function()
     if teleportEnabled and selectedPart ~= "None" and charData and charData.Humanoid and charData.HumanoidRootPart and charData.HumanoidRootPart:IsDescendantOf(Workspace) then
+        local currentPos = charData.HumanoidRootPart.Position
+        local safePosition = Vector3.new(-36.923317, 22.54938221, -23.4148331)
+        if (currentPos - safePosition).Magnitude > 5000 then
+            charData.HumanoidRootPart.CFrame = CFrame.new(safePosition)
+            teleportEnabled = false
+            return
+        end
         local currentTime = tick()
-        if currentTime - lastTeleportTime >= 0.1 then
+        if currentTime - lastTeleportTime >= 0.5 then
             local nearestPart = getNearestPart()
             if nearestPart and nearestPart:IsDescendantOf(Workspace) then
+                -- If a horse is found, teleport to it and catch it
                 safeTeleportToPart(nearestPart.Position, nearestPart)
                 lastTeleportTime = currentTime
+                lastLocationCheckTime = currentTime -- Reset check timer when a horse is found
+            elseif currentTime - lastLocationCheckTime >= checkInterval then
+                -- If no horse is found and enough time has passed, teleport to the next spawn location
+                if teleportToNextSpawnLocation() then
+                    lastTeleportTime = currentTime
+                    lastLocationCheckTime = currentTime -- Reset check timer after teleporting
+                end
             end
         end
     end
@@ -487,7 +609,7 @@ local foodTeleportPositions = {
     LargeBerryBush = Vector3.new(1509.814697265625, 294.0887451171875, -268.6426696777344),
     StoneDeposit = Vector3.new(1664.91796875, 47.65071678161621, -1449.3878173828125),
     Stump = Vector3.new(577.5712890625, 23.5939579010009766, -17.890897750854492),
-    Treasure = Vector3.new(570.73388671875, 17.773395538330078, -1131.123291015625),
+    Treasure = Vector3.new(-63.46995544433594, 23.444576263427734, -271.19671630859375),
     SilkBush = Vector3.new(-1333.2440185546875, 47.825965881347656, -581.406982421875)
 }
 
@@ -527,6 +649,7 @@ local function farmFood()
                     }
                     remoteEvent:InvokeServer(unpack(args1))
 
+                    task.wait(0.1)
                     local args2 = {
                         [1] = localPlayer.Character and localPlayer.Character.Animals:FindFirstChild("3")
                     }
@@ -554,7 +677,7 @@ end
 
 local function teleportToPosition(position)
     local success, errorMsg = pcall(function()
-        if charData and charData.Humanoid and charData.Humanoid.Health > 0 and charData.HumanoidRootPart and charData.HumanoidRootPart:IsDescendantOf(Workspace) then
+        if charData and charData.Humanoid and charData.HumanoidRootPart and charData.HumanoidRootPart:IsDescendantOf(Workspace) then
             charData.HumanoidRootPart.CFrame = CFrame.new(position)
         end
     end)
@@ -641,14 +764,13 @@ Section2_Tab2:AddToggle({
     Callback = function(state)
         FarmToggles.FarmFood = state
         if state and charData and charData.HumanoidRootPart then
-            if selectedFood == "All" then
-                startAllFoodTeleport()
-            else
-                local position = foodTeleportPositions[selectedFood]
-                if position then
-                    teleportToPosition(position)
+            task.spawn(function()
+                while FarmToggles.FarmFood do
+                    farmFood()
+                    sendDrops()
+                    task.wait(0.01)
                 end
-            end
+            end)
         end
     end
 })
@@ -671,14 +793,6 @@ Section2_Tab2:AddToggle({
     end
 })
 
-Section2_Tab2:AddToggle({
-    Name = "Farm DailyChest and Shovel",
-    Default = false,
-    Callback = function(state)
-        
-    end
-})
-
 RunService.Heartbeat:Connect(function()
     if charData and charData.Character and charData.Character:IsDescendantOf(Workspace) then
         local currentTime = tick()
@@ -697,4 +811,3 @@ RunService.Heartbeat:Connect(function()
         end
     end
 end)
-
