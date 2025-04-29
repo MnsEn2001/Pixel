@@ -36,6 +36,7 @@ local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
+local VirtualInput = game:GetService("VirtualInputManager")
 
 local defaultGravity = Workspace.Gravity
 repeat wait() until game:IsLoaded()
@@ -50,7 +51,7 @@ local noclipConnection = nil
 local lastTeleportTime = 0
 local eventFarmEnabled = false
 local lastLocationCheckTime = 0
-local checkInterval = 2 -- Time to wait at each location before checking again (in seconds)
+local checkInterval = 2
 
 local folderCreationTimes = {}
 local currentSpawnIndex = {}
@@ -300,15 +301,12 @@ local function teleportToNextSpawnLocation()
         warn("No spawn locations defined for: ", selectedPart)
         return false
     end
-    -- Initialize spawn index for this horse if not set
     if not currentSpawnIndex[selectedPart] then
         currentSpawnIndex[selectedPart] = 1
     end
-    -- Get the current spawn location
     local targetPosition = spawnLocations[currentSpawnIndex[selectedPart]]
     if targetPosition then
         safeTeleportToPart(targetPosition, nil)
-        -- Move to the next spawn location (cycle back to 1 if at the end)
         currentSpawnIndex[selectedPart] = currentSpawnIndex[selectedPart] + 1
         if currentSpawnIndex[selectedPart] > #spawnLocations then
             currentSpawnIndex[selectedPart] = 1
@@ -392,302 +390,199 @@ Section1_Tab1:AddDropdown({
         selectedPart = selected
         lastTeleportedPart = nil
         currentSpawnIndex[selected] = 1
-        lastLocationCheckTime = 0 -- Reset check time when selecting a new horse
+        lastLocationCheckTime = 0
     end
 })
 
-local function notifyUser(message)
-    PixelLib:CreateNotification({
-        Title = "Pixel Hub Notification",
-        Text = message,
-        Duration = 5
-    })
-end
+Section1_Tab1:AddToggle({
+    Name = "Auto Sell",
+    Default = false,
+    Callback = function(state)
+        autoSellEnabled = state
+    end
+})
 
 local function equipTool(toolType)
     local localPlayer = game:GetService("Players").LocalPlayer
     local backpack = localPlayer.Backpack
     local character = localPlayer.Character
-    local desiredTool = nil
-    local virtualInput = game:GetService("VirtualInputManager")
 
-    -- Step 1: Check if the character is holding a tool and if it's the correct type
+    -- Step 1: Check if already holding correct tool type
     if character then
         for _, tool in ipairs(character:GetChildren()) do
             if tool:IsA("Tool") then
                 if toolType == "Lasso" and tool:FindFirstChild("Handle") and tool.Handle:FindFirstChild("ToolBillboard") then
-                    print("Already holding a Lasso: " .. tool.Name)
                     return true
                 elseif toolType == "Food" and tool:FindFirstChild("Handle") and not tool.Handle:FindFirstChild("ToolBillboard") then
-                    print("Already holding a Food: " .. tool.Name)
                     return true
-                else
-                    local humanoid = character:FindFirstChild("Humanoid")
-                    if humanoid then
-                        humanoid:UnequipTools()
-                        print("Unequipped incorrect tool: " .. tool.Name)
-                    end
                 end
             end
         end
     end
 
-    -- Step 2: Check backpack for the desired tool
+    -- Step 2: Check backpack and find valid tool
     for _, tool in ipairs(backpack:GetChildren()) do
         if tool:IsA("Tool") and tool:FindFirstChild("Handle") then
             if toolType == "Lasso" and tool.Handle:FindFirstChild("ToolBillboard") then
-                desiredTool = tool
-                print("Found Lasso in backpack: " .. tool.Name)
-                break
+                if character and character.Humanoid then
+                    character.Humanoid:EquipTool(tool)
+                end
+                return true
             elseif toolType == "Food" and not tool.Handle:FindFirstChild("ToolBillboard") then
-                desiredTool = tool
-                print("Found Food in backpack: " .. tool.Name)
-                break
+                if character and character.Humanoid then
+                    character.Humanoid:EquipTool(tool)
+                end
+                return true
             end
         end
     end
 
-    -- Step 3: Equip the tool if found
-    if desiredTool and character then
-        local humanoid = character:FindFirstChild("Humanoid")
-        if humanoid then
-            humanoid:EquipTool(desiredTool)
-            print("Equipped tool: " .. desiredTool.Name)
-            return true
-        end
-    end
-
-    -- Step 4: If no tool is found, clear hotbar
-    print("No desired tool found in backpack. Clearing hotbar...")
-    local success, result = pcall(function()
-        for i = 1, 3 do
-            local args = {
-                [1] = tostring(i)
-            }
+    -- Step 3: If no tool in backpack, clear hotbar and reload from GUI
+    for i = 1, 3 do
+        local args = { [1] = tostring(i) }
+        pcall(function()
             game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SetHotbarRemote"):InvokeServer(unpack(args))
             task.wait(0.1)
-        end
-    end)
-    if not success then
-        warn("Failed to clear hotbar: " .. tostring(result))
-    else
-        print("Hotbar cleared successfully.")
+        end)
     end
 
-    -- Step 5: Check inventory for Lasso or Food
-    local inventoryGui = localPlayer.PlayerGui:WaitForChild("InventoryGui", 10)
-    local content = inventoryGui and inventoryGui:FindFirstChild("ContainerFrame") and inventoryGui.ContainerFrame:FindFirstChild("Menu") and inventoryGui.ContainerFrame.Menu:FindFirstChild("Content") and inventoryGui.ContainerFrame.Menu.Content:FindFirstChild("Items") and inventoryGui.ContainerFrame.Menu.Content.Items:FindFirstChild("Content")
+    -- Step 4: Open inventory with 'G' key
+    VirtualInput:SendKeyEvent(true, Enum.KeyCode.G, false, game)
+    task.wait(0.2)
+    VirtualInput:SendKeyEvent(false, Enum.KeyCode.G, false, game)
+    task.wait(3)
 
-    -- Step 6: Force inventory load by simulating 'G' key and closing inventory until tools are found
+    -- Step 5: Check Content.Items.Content for tools
+    local inventoryGui = localPlayer.PlayerGui:FindFirstChild("InventoryGui")
+    local content = inventoryGui and inventoryGui:FindFirstChild("ContainerFrame") and 
+                    inventoryGui.ContainerFrame:FindFirstChild("Menu") and 
+                    inventoryGui.ContainerFrame.Menu:FindFirstChild("Content") and 
+                    inventoryGui.ContainerFrame.Menu.Content:FindFirstChild("Items") and 
+                    inventoryGui.ContainerFrame.Menu.Content.Items:FindFirstChild("Content")
+
     local toolsFound = {}
-    local maxAttempts = 5
-    local attempts = 0
 
-    while #toolsFound == 0 and attempts < maxAttempts do
-        attempts = attempts + 1
-        print("Inventory load attempt #" .. attempts)
+    if content then
+        for _, item in ipairs(content:GetChildren()) do
+            if (item:IsA("Frame") or item:IsA("ImageButton")) and item.Name ~= "UIGridLayout" then
+                if item.Name ~= "Default" and 
+                   item.Name ~= "BasicShovel" and 
+                   item.Name ~= "MasterLasso" and 
+                   item.Name ~= "WeakMagicLasso" and 
+                   item.Name ~= "KelpLasso" and 
+                   item.Name ~= "MysticFeed" and 
+                   item.Name ~= "GoodFeed" and 
+                   not item.Name:lower():find("potion") then
 
-        -- Simulate pressing 'G' to open inventory
-        if inventoryGui then
-            virtualInput:SendKeyEvent(true, Enum.KeyCode.G, false, game)
-            task.wait(0.2)
-            virtualInput:SendKeyEvent(false, Enum.KeyCode.G, false, game)
-            print("Simulated 'G' key press to open inventory.")
-            task.wait(3) -- Wait for inventory to load
-        else
-            warn("InventoryGui not found.")
-            notifyUser("Failed to load inventory. Please open it manually.")
-            break
-        end
-
-        -- Check Content for tools
-        if content then
-            print("Content contents:")
-            for _, item in ipairs(content:GetChildren()) do
-                if (item:IsA("Frame") or item:IsA("ImageButton")) and item.Name ~= "UIGridLayout" then
-                    print(" - Item: " .. item.Name .. " (Class: " .. item.ClassName .. ")")
-                    -- Exclude specific items and those with "Potion" in the name
-                    if item.Name ~= "Default" and 
-                       item.Name ~= "BasicShovel" and 
-                       item.Name ~= "MasterLasso" and 
-                       item.Name ~= "WeakMagicLasso" and 
-                       item.Name ~= "KelpLasso" and 
-                       item.Name ~= "MysticFeed" and 
-                       item.Name ~= "GoodFeed" and 
-                       not item.Name:lower():find("potion") then
-                        if toolType == "Lasso" and (item.Name:lower():find("lasso") or item.Name:lower():find("rope") or item.Name:lower():find("tame") or item.Name:lower():find("magic")) then
-                            table.insert(toolsFound, item.Name)
-                            print("Found Lasso item in Content: " .. item.Name)
-                        elseif toolType == "Food" and (item.Name:lower():find("apple") or item.Name:lower():find("berry") or item.Name:lower():find("fruit") or item.Name:lower():find("food") or item.Name:lower():find("feed")) then
-                            table.insert(toolsFound, item.Name)
-                            print("Found Food item in Content: " .. item.Name)
-                        end
+                    if toolType == "Lasso" and (item.Name:lower():find("lasso") or item.Name:lower():find("rope") or item.Name:lower():find("tame") or item.Name:lower():find("magic")) then
+                        table.insert(toolsFound, item.Name)
+                    elseif toolType == "Food" and (item.Name:lower():find("apple") or item.Name:lower():find("berry") or item.Name:lower():find("fruit") or item.Name:lower():find("food") or item.Name:lower():find("feed")) then
+                        table.insert(toolsFound, item.Name)
                     end
                 end
             end
-        else
-            warn("Content not found.")
-        end
-
-        -- Close inventory by simulating a click/tap on CloseButton
-        local closeButton = inventoryGui and inventoryGui:FindFirstChild("ContainerFrame") and inventoryGui.ContainerFrame:FindFirstChild("Menu") and inventoryGui.ContainerFrame.Menu:FindFirstChild("CloseButton")
-        if closeButton and (closeButton:IsA("ImageButton") or closeButton:IsA("TextButton")) then
-            print("CloseButton found: " .. closeButton.Name .. " (Class: " .. closeButton.ClassName .. ", Active: " .. tostring(closeButton.Active) .. ", Visible: " .. tostring(closeButton.Visible) .. ")")
-            
-            -- Calculate the button's screen position
-            local absolutePos = closeButton.AbsolutePosition
-            local absoluteSize = closeButton.AbsoluteSize
-            local clickX = absolutePos.X + absoluteSize.X / 2
-            local clickY = absolutePos.Y + absoluteSize.Y / 2
-            print(string.format("CloseButton screen position: (%.2f, %.2f)", clickX, clickY))
-
-            -- Simulate a click/tap
-            local success, result = pcall(function()
-                -- Try mouse click for PC
-                virtualInput:SendMouseButtonEvent(clickX, clickY, 0, true, game, 0)
-                task.wait(0.1)
-                virtualInput:SendMouseButtonEvent(clickX, clickY, 0, false, game, 0)
-                print("Simulated mouse click on CloseButton.")
-                
-                -- Wait briefly to check if inventory closed
-                task.wait(0.5)
-                if inventoryGui and inventoryGui.Enabled then
-                    -- Try touch event for mobile (simulate touch down and up)
-                    virtualInput:SendMouseButtonEvent(clickX, clickY, 0, true, game, 0)
-                    task.wait(0.2) -- Longer delay to mimic touch
-                    virtualInput:SendMouseButtonEvent(clickX, clickY, 0, false, game, 0)
-                    print("Simulated touch tap on CloseButton.")
-                end
-            end)
-            if success then
-                print("Click/tap simulation completed.")
-            else
-                warn("Failed to simulate click/tap on CloseButton: " .. tostring(result))
-                notifyUser("Failed to close inventory. Please close it manually.")
-                break
-            end
-
-            -- Wait to confirm inventory is closed
-            task.wait(1)
-            if inventoryGui and inventoryGui.Enabled then
-                warn("Inventory still open after click/tap attempt.")
-                notifyUser("Failed to close inventory. Please close it manually.")
-                break
-            end
-        else
-            warn("CloseButton not found or invalid.")
-            notifyUser("CloseButton not found. Please close inventory manually.")
-            break
         end
     end
 
-    -- Step 7: Check if tools were found
     if #toolsFound == 0 then
-        warn("No " .. toolType .. " tools found in Content after " .. attempts .. " attempts.")
-        notifyUser("Failed to load " .. toolType .. " tools. Please open your inventory manually and try again.")
         return false
     end
 
-    -- Step 8: Equip up to 3 tools to hotbar
-    print("Found " .. #toolsFound .. " suitable tools: " .. table.concat(toolsFound, ", "))
-    print("Assigning to hotbar...")
+    -- Step 6: Assign tools to hotbar
     for i = 1, math.min(3, #toolsFound) do
         local toolName = toolsFound[i]
-        local args = {
-            [1] = tostring(i),
-            [2] = toolName
-        }
-        local success, result = pcall(function()
+        local args = { [1] = tostring(i), [2] = toolName }
+        pcall(function()
             game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SetHotbarRemote"):InvokeServer(unpack(args))
         end)
-        if success then
-            print("Assigned tool " .. toolName .. " to hotbar slot " .. i)
-        else
-            warn("Failed to assign tool " .. toolName .. " to hotbar slot " .. i .. ": " .. tostring(result))
-        end
         task.wait(0.1)
     end
 
-    -- Step 9: Wait for tools to appear in backpack
-    print("Waiting for tools to appear in backpack...")
-    local maxWait = 20
-    local waitInterval = 3
-    for i = 1, maxWait do
+    -- Step 7: Wait for tools to appear in backpack
+    for i = 1, 10 do
         for _, tool in ipairs(backpack:GetChildren()) do
             if tool:IsA("Tool") and tool:FindFirstChild("Handle") then
                 if toolType == "Lasso" and tool.Handle:FindFirstChild("ToolBillboard") then
-                    desiredTool = tool
-                    print("Found new Lasso in backpack: " .. tool.Name)
-                    break
+                    if character and character.Humanoid then
+                        character.Humanoid:EquipTool(tool)
+                    end
+                    return true
                 elseif toolType == "Food" and not tool.Handle:FindFirstChild("ToolBillboard") then
-                    desiredTool = tool
-                    print("Found new Food in backpack: " .. tool.Name)
-                    break
+                    if character and character.Humanoid then
+                        character.Humanoid:EquipTool(tool)
+                    end
+                    return true
                 end
             end
         end
-        if desiredTool then break end
-        print("Backpack check attempt #" .. i .. ": No tools found yet.")
-        task.wait(waitInterval)
+        task.wait(1)
     end
-
-    -- Step 10: Equip the tool
-    if desiredTool and character then
-        local humanoid = character:FindFirstChild("Humanoid")
-        if humanoid then
-            humanoid:EquipTool(desiredTool)
-            print("Equipped new tool: " .. desiredTool.Name)
-            return true
-        else
-            warn("No humanoid found to equip tool.")
-        end
-    else
-        warn("No desired tool found in backpack after assigning to hotbar.")
-        notifyUser("Failed to equip " .. toolType .. ". Please check your inventory.")
-    end
-
     return false
 end
 
--- Monitor tool depletion
 local function monitorToolDepletion(toolType)
     task.spawn(function()
         while teleportEnabled do
             local character = localPlayer.Character
-            local hasTool = false
+            local backpack = localPlayer.Backpack
+            local hasCorrectTool = false
+
+            -- Check equipped tool
             if character then
                 for _, tool in ipairs(character:GetChildren()) do
                     if tool:IsA("Tool") then
                         if toolType == "Lasso" and tool:FindFirstChild("Handle") and tool.Handle:FindFirstChild("ToolBillboard") then
-                            hasTool = true
+                            hasCorrectTool = true
                             break
                         elseif toolType == "Food" and tool:FindFirstChild("Handle") and not tool.Handle:FindFirstChild("ToolBillboard") then
-                            hasTool = true
+                            hasCorrectTool = true
                             break
                         end
                     end
                 end
             end
-            if not hasTool then
-                -- Tool is missing, try to equip a new one
+
+            -- Check backpack
+            if not hasCorrectTool then
+                for _, tool in ipairs(backpack:GetChildren()) do
+                    if tool:IsA("Tool") and tool:FindFirstChild("Handle") then
+                        if toolType == "Lasso" and tool.Handle:FindFirstChild("ToolBillboard") then
+                            character.Humanoid:EquipTool(tool)
+                            hasCorrectTool = true
+                            break
+                        elseif toolType == "Food" and not tool.Handle:FindFirstChild("ToolBillboard") then
+                            character.Humanoid:EquipTool(tool)
+                            hasCorrectTool = true
+                            break
+                        end
+                    end
+                end
+            end
+
+            -- Re-equip if needed
+            if not hasCorrectTool then
+                VirtualInput:SendKeyEvent(true, Enum.KeyCode.G, false, game)
+                task.wait(0.2)
+                VirtualInput:SendKeyEvent(false, Enum.KeyCode.G, false, game)
+                task.wait(3)
+
                 equipTool(toolType)
             end
+
             task.wait(1)
         end
     end)
 end
 
--- Modify the Auto Farm Use -- Lasso -- toggle
 Section1_Tab1:AddToggle({
     Name = "Auto Farm Use -- Lasso --",
     Default = false,
     Callback = function(state)
         teleportEnabled = state
         lastTeleportedPart = nil
-        lastLocationCheckTime = 0 -- Reset check time when toggling
+        lastLocationCheckTime = 0
         if charData and charData.HumanoidRootPart and charData.Humanoid then
             if state then
-                -- Check and equip Lasso
                 if not equipTool("Lasso") then
                     teleportEnabled = false
                     warn("No Lasso found in inventory.")
@@ -715,7 +610,7 @@ Section1_Tab1:AddToggle({
                 enableNoclip()
                 Remote_Farm = true
                 start_Remote_Lasso()
-                monitorToolDepletion("Lasso") -- Start monitoring tool depletion
+                monitorToolDepletion("Lasso")
                 guiCheckConnection = task.spawn(function()
                     while teleportEnabled do
                         local successPromptLoop, promptFrameLoop = pcall(function()
@@ -763,17 +658,15 @@ Section1_Tab1:AddToggle({
     end
 })
 
--- Modify the Auto Farm Use -- Food -- toggle
 Section1_Tab1:AddToggle({
     Name = "Auto Farm Use -- Food --",
     Default = false,
     Callback = function(state)
         teleportEnabled = state
         lastTeleportedPart = nil
-        lastLocationCheckTime = 0 -- Reset check time when toggling
+        lastLocationCheckTime = 0
         if charData and charData.HumanoidRootPart and charData.Humanoid then
             if state then
-                -- Check and equip Food
                 if not equipTool("Food") then
                     teleportEnabled = false
                     warn("No Food found in inventory.")
@@ -801,7 +694,7 @@ Section1_Tab1:AddToggle({
                 enableNoclip()
                 Remote_Farm = true
                 start_Remote_Food()
-                monitorToolDepletion("Food") -- Start monitoring tool depletion
+                monitorToolDepletion("Food")
                 guiCheckConnection = task.spawn(function()
                     while teleportEnabled do
                         local successPromptLoop, promptFrameLoop = pcall(function()
@@ -849,14 +742,6 @@ Section1_Tab1:AddToggle({
     end
 })
 
-Section1_Tab1:AddToggle({
-    Name = "Auto Sell",
-    Default = false,
-    Callback = function(state)
-        autoSellEnabled = state
-    end
-})
-
 local teleportConnection
 teleportConnection = RunService.Heartbeat:Connect(function()
     if teleportEnabled and selectedPart ~= "None" and charData and charData.Humanoid and charData.HumanoidRootPart and charData.HumanoidRootPart:IsDescendantOf(Workspace) then
@@ -871,15 +756,13 @@ teleportConnection = RunService.Heartbeat:Connect(function()
         if currentTime - lastTeleportTime >= 0.5 then
             local nearestPart = getNearestPart()
             if nearestPart and nearestPart:IsDescendantOf(Workspace) then
-                -- If a horse is found, teleport to it and catch it
                 safeTeleportToPart(nearestPart.Position, nearestPart)
                 lastTeleportTime = currentTime
-                lastLocationCheckTime = currentTime -- Reset check timer when a horse is found
+                lastLocationCheckTime = currentTime
             elseif currentTime - lastLocationCheckTime >= checkInterval then
-                -- If no horse is found and enough time has passed, teleport to the next spawn location
                 if teleportToNextSpawnLocation() then
                     lastTeleportTime = currentTime
-                    lastLocationCheckTime = currentTime -- Reset check timer after teleporting
+                    lastLocationCheckTime = currentTime
                 end
             end
         end
@@ -1112,3 +995,7 @@ RunService.Heartbeat:Connect(function()
         end
     end
 end)
+
+
+
+
