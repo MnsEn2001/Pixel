@@ -607,20 +607,29 @@ local function monitorToolDepletion(toolType)
 
                 local hasMatchingTool = false
                 local toolsFound = {}
+                local onlyDefaultAndGrid = false
 
-                -- Check if any item in inventory matches toolsFolder or foodFolder
-                if content and (toolsFolder or foodFolder) then
+                -- Check inventory content
+                if content then
+                    local validItems = 0
                     for _, item in ipairs(content:GetChildren()) do
-                        if (item:IsA("Frame") or item:IsA("ImageButton")) and item.Name ~= "UIGridLayout" then
+                        if item.Name ~= "UIGridLayout" and item.Name ~= "Default" then
+                            validItems = validItems + 1
                             local itemName = item.Name
-                            if toolType == "Lasso" and toolsFolder and toolsFolder:FindFirstChild(itemName) and string.find(itemName:lower(), "lasso") then
-                                table.insert(toolsFound, itemName)
-                                hasMatchingTool = true
-                            elseif toolType == "Food" and foodFolder and foodFolder:FindFirstChild(itemName) and not string.find(itemName:lower(), "feed") and not string.find(itemName:lower(), "lasso") then
-                                table.insert(toolsFound, itemName)
-                                hasMatchingTool = true
+                            if (item:IsA("Frame") or item:IsA("ImageButton")) then
+                                if toolType == "Lasso" and toolsFolder and toolsFolder:FindFirstChild(itemName) and string.find(itemName:lower(), "lasso") then
+                                    table.insert(toolsFound, itemName)
+                                    hasMatchingTool = true
+                                elseif toolType == "Food" and foodFolder and foodFolder:FindFirstChild(itemName) and not string.find(itemName:lower(), "feed") and not string.find(itemName:lower(), "lasso") then
+                                    table.insert(toolsFound, itemName)
+                                    hasMatchingTool = true
+                                end
                             end
                         end
+                    end
+                    -- If only Default and UIGridLayout are present, or no valid items
+                    if validItems == 0 then
+                        onlyDefaultAndGrid = true
                     end
                 end
 
@@ -674,11 +683,13 @@ local function monitorToolDepletion(toolType)
                         task.wait(0.5)
                     end
                 else
-                    -- No matching tools, open InventoryGui by pressing G
-                    VirtualInput:SendKeyEvent(true, Enum.KeyCode.G, false, game)
-                    task.wait(0.2)
-                    VirtualInput:SendKeyEvent(false, Enum.KeyCode.G, false, game)
-                    task.wait(0.5)
+                    -- No matching tools or only Default and UIGridLayout, open InventoryGui by pressing G
+                    if not hasMatchingTool or onlyDefaultAndGrid then
+                        VirtualInput:SendKeyEvent(true, Enum.KeyCode.G, false, game)
+                        task.wait(0.2)
+                        VirtualInput:SendKeyEvent(false, Enum.KeyCode.G, false, game)
+                        task.wait(0.5)
+                    end
 
                     -- Re-run equipTool to handle inventory check and hotbar assignment
                     hasCorrectTool = equipTool(toolType)
