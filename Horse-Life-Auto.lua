@@ -446,7 +446,13 @@ local function equipTool(toolType)
         end)
     end
 
-    -- Step 4: Get Data Folders
+    -- Step 4: Open InventoryGui (simulate pressing G key)
+    VirtualInput:SendKeyEvent(true, Enum.KeyCode.G, false, game)
+    task.wait(0.2)
+    VirtualInput:SendKeyEvent(false, Enum.KeyCode.G, false, game)
+    task.wait(0.5)
+
+    -- Step 5: Get Data Folders
     local dataGui = localPlayer.PlayerGui:FindFirstChild("Data")
     local toolsFolder = dataGui and dataGui:FindFirstChild("Tools")
     local foodFolder = dataGui and dataGui:FindFirstChild("Food")
@@ -469,7 +475,7 @@ local function equipTool(toolType)
         end
     end
 
-    -- Step 5: Find tools in InventoryGui
+    -- Step 6: Find tools in InventoryGui
     local inventoryGui = localPlayer.PlayerGui:FindFirstChild("InventoryGui")
     local content = inventoryGui and inventoryGui:FindFirstChild("ContainerFrame") and 
                     inventoryGui.ContainerFrame:FindFirstChild("Menu") and 
@@ -477,38 +483,6 @@ local function equipTool(toolType)
                     inventoryGui.ContainerFrame.Menu.Content:FindFirstChild("Items") and 
                     inventoryGui.ContainerFrame.Menu.Content.Items:FindFirstChild("Content")
 
-    -- Step 6: Check if needed to open inventory by checking if any tools are visible in Content already
-    local hasValidTools = false
-    local allowedNonToolNames = {
-        ["UIGridLayout"] = true,
-        ["Default"] = true
-    }
-
-    if content then
-        for _, item in ipairs(content:GetChildren()) do
-            local itemName = item.Name
-            if not allowedNonToolNames[itemName] then
-                hasValidTools = true
-                break
-            end
-        end
-    end
-
-    -- Step 7: Only open inventory if no valid tools found in Content
-    if not hasValidTools then
-        VirtualInput:SendKeyEvent(true, Enum.KeyCode.G, false, game)
-        task.wait(0.2)
-        VirtualInput:SendKeyEvent(false, Enum.KeyCode.G, false, game)
-        task.wait(0.5)
-
-        content = inventoryGui and inventoryGui:FindFirstChild("ContainerFrame") and 
-                   inventoryGui.ContainerFrame:FindFirstChild("Menu") and 
-                   inventoryGui.ContainerFrame.Menu:FindFirstChild("Content") and 
-                   inventoryGui.ContainerFrame.Menu.Content:FindFirstChild("Items") and 
-                   inventoryGui.ContainerFrame.Menu.Content.Items:FindFirstChild("Content")
-    end
-
-    -- Step 8: Now proceed to find tools in Content
     local toolsFound = {}
 
     if content then
@@ -539,11 +513,10 @@ local function equipTool(toolType)
     end
 
     if #toolsFound == 0 then
-        warn("No suitable tools found in InventoryGui.")
         return false
     end
 
-    -- Step 9: Randomly select up to 3 tools and assign to hotbar
+    -- Step 7: Randomly select up to 3 tools and assign to hotbar
     math.randomseed(tick())
     local selectedTools = {}
     while #selectedTools < 3 and #toolsFound > 0 do
@@ -559,7 +532,7 @@ local function equipTool(toolType)
         task.wait(0.1)
     end
 
-    -- Step 10: Wait for tools to appear in Backpack and Equip them
+    -- Step 8: Wait for tools to appear in Backpack and Equip them
     for _ = 1, 10 do
         for _, tool in ipairs(backpack:GetChildren()) do
             if tool:IsA("Tool") and tool:FindFirstChild("Handle") then
@@ -578,8 +551,6 @@ local function equipTool(toolType)
         end
         task.wait(1)
     end
-
-    warn("Failed to equip a tool of type: " .. toolType)
     return false
 end
 
@@ -622,14 +593,96 @@ local function monitorToolDepletion(toolType)
                 end
             end
 
-            -- Re-equip if needed
+            -- If no correct tool found, check inventory
             if not hasCorrectTool then
-                VirtualInput:SendKeyEvent(true, Enum.KeyCode.G, false, game)
-                task.wait(0.2)
-                VirtualInput:SendKeyEvent(false, Enum.KeyCode.G, false, game)
-                task.wait(0.5)
+                local dataGui = localPlayer.PlayerGui:FindFirstChild("Data")
+                local toolsFolder = dataGui and dataGui:FindFirstChild("Tools")
+                local foodFolder = dataGui and dataGui:FindFirstChild("Food")
+                local inventoryGui = localPlayer.PlayerGui:FindFirstChild("InventoryGui")
+                local content = inventoryGui and inventoryGui:FindFirstChild("ContainerFrame") and 
+                               inventoryGui.ContainerFrame:FindFirstChild("Menu") and 
+                               inventoryGui.ContainerFrame.Menu:FindFirstChild("Content") and 
+                               inventoryGui.ContainerFrame.Menu.Content:FindFirstChild("Items") and 
+                               inventoryGui.ContainerFrame.Menu.Content.Items:FindFirstChild("Content")
 
-                equipTool(toolType)
+                local hasMatchingTool = false
+                local toolsFound = {}
+
+                -- Check if any item in inventory matches toolsFolder or foodFolder
+                if content and (toolsFolder or foodFolder) then
+                    for _, item in ipairs(content:GetChildren()) do
+                        if (item:IsA("Frame") or item:IsA("ImageButton")) and item.Name ~= "UIGridLayout" then
+                            local itemName = item.Name
+                            if toolType == "Lasso" and toolsFolder and toolsFolder:FindFirstChild(itemName) and string.find(itemName:lower(), "lasso") then
+                                table.insert(toolsFound, itemName)
+                                hasMatchingTool = true
+                            elseif toolType == "Food" and foodFolder and foodFolder:FindFirstChild(itemName) and not string.find(itemName:lower(), "feed") and not string.find(itemName:lower(), "lasso") then
+                                table.insert(toolsFound, itemName)
+                                hasMatchingTool = true
+                            end
+                        end
+                    end
+                end
+
+                -- If matching tool found, skip pressing G and assign to hotbar
+                if hasMatchingTool and #toolsFound > 0 then
+                    -- Clear Hotbar slots 1, 2, 3
+                    for i = 1, 3 do
+                        local args = { [1] = tostring(i) }
+                        pcall(function()
+                            game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SetHotbarRemote"):InvokeServer(unpack(args))
+                            task.wait(0.1)
+                        end)
+                    end
+
+                    -- Randomly select up to 3 tools and assign to hotbar
+                    math.randomseed(tick())
+                    local selectedTools = {}
+                    while #selectedTools < 3 and #toolsFound > 0 do
+                        local index = math.random(#toolsFound)
+                        table.insert(selectedTools, table.remove(toolsFound, index))
+                    end
+
+                    for i, toolName in ipairs(selectedTools) do
+                        local args = { [1] = tostring(i), [2] = toolName }
+                        pcall(function()
+                            ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("SetHotbarRemote"):InvokeServer(unpack(args))
+                        end)
+                        task.wait(0.1)
+                    end
+
+                    -- Wait for tools to appear in Backpack and Equip them
+                    for _ = 1, 10 do
+                        for _, tool in ipairs(backpack:GetChildren()) do
+                            if tool:IsA("Tool") and tool:FindFirstChild("Handle") then
+                                if toolType == "Lasso" and tool.Handle:FindFirstChild("ToolBillboard") then
+                                    if character and character.Humanoid then
+                                        character.Humanoid:EquipTool(tool)
+                                    end
+                                    hasCorrectTool = true
+                                    break
+                                elseif toolType == "Food" and not tool.Handle:FindFirstChild("ToolBillboard") then
+                                    if character and character.Humanoid then
+                                        character.Humanoid:EquipTool(tool)
+                                    end
+                                    hasCorrectTool = true
+                                    break
+                                end
+                            end
+                        end
+                        if hasCorrectTool then break end
+                        task.wait(0.5)
+                    end
+                else
+                    -- No matching tools, open InventoryGui by pressing G
+                    VirtualInput:SendKeyEvent(true, Enum.KeyCode.G, false, game)
+                    task.wait(0.2)
+                    VirtualInput:SendKeyEvent(false, Enum.KeyCode.G, false, game)
+                    task.wait(0.5)
+
+                    -- Re-run equipTool to handle inventory check and hotbar assignment
+                    hasCorrectTool = equipTool(toolType)
+                end
             end
 
             task.wait(1)
