@@ -258,7 +258,7 @@ local function safeTeleportToPart(targetPosition, currentPart)
             charData.HumanoidRootPart.CFrame = CFrame.new(adjustedPosition)
             if lastTeleportedPart ~= currentPart then
                 charData.HumanoidRootPart.Anchored = false
-                task.wait(0.5)
+                task.wait(0.1)
                 if teleportEnabled and charData and charData.HumanoidRootPart and charData.HumanoidRootPart:IsDescendantOf(Workspace) then
                     charData.HumanoidRootPart.Anchored = true
                 end
@@ -635,16 +635,19 @@ Section1_Tab1:AddToggle({
             else
                 Workspace.Gravity = defaultGravity
                 if charData and charData.HumanoidRootPart then
-                    local targetCFrame = CFrame.new(
-                        Vector3.new(-36.923317, 22.54938221, -23.4148331)
-                    )
+                    local currentPos = charData.HumanoidRootPart.Position
+                    local targetPos = currentPos + Vector3.new(0, 40, 0)
+                    local targetCFrame = CFrame.new(targetPos)
+            
                     local success, errorMsg = pcall(function()
                         charData.HumanoidRootPart.Anchored = true
+                        task.wait(0.1)
                         charData.HumanoidRootPart.CFrame = targetCFrame
                         task.wait(0.1)
                         charData.HumanoidRootPart.Anchored = false
+                        task.wait(0.1)
+                        disableNoclip()
                     end)
-                    disableNoclip()
                 end
                 Remote_Farm = false
                 if guiCheckConnection then
@@ -719,16 +722,19 @@ Section1_Tab1:AddToggle({
             else
                 Workspace.Gravity = defaultGravity
                 if charData and charData.HumanoidRootPart then
-                    local targetCFrame = CFrame.new(
-                        Vector3.new(-36.923317, 22.54938221, -23.4148331)
-                    )
+                    local currentPos = charData.HumanoidRootPart.Position
+                    local targetPos = currentPos + Vector3.new(0, 40, 0)
+                    local targetCFrame = CFrame.new(targetPos)
+            
                     local success, errorMsg = pcall(function()
                         charData.HumanoidRootPart.Anchored = true
+                        task.wait(0.1)
                         charData.HumanoidRootPart.CFrame = targetCFrame
                         task.wait(0.1)
                         charData.HumanoidRootPart.Anchored = false
+                        task.wait(0.1)
+                        disableNoclip()
                     end)
-                    disableNoclip()
                 end
                 Remote_Farm = false
                 if guiCheckConnection then
@@ -995,7 +1001,3 @@ RunService.Heartbeat:Connect(function()
         end
     end
 end)
-
-
-
-
