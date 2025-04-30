@@ -137,21 +137,56 @@ local function updateCharacterData()
         local char = charactersFolder:WaitForChild(localPlayer.Name, 5)
         local hrp = char:WaitForChild("HumanoidRootPart", 5)
         local hum = char:WaitForChild("Humanoid", 5)
+        local parts = {
+            Head = char:WaitForChild("Head", 5),
+            LeftFoot = char:WaitForChild("LeftFoot", 5),
+            LeftHand = char:WaitForChild("LeftHand", 5),
+            LeftLowerArm = char:WaitForChild("LeftLowerArm", 5),
+            LeftLowerLeg = char:WaitForChild("LeftLowerLeg", 5),
+            LeftUpperArm = char:WaitForChild("LeftUpperArm", 5),
+            LeftUpperLeg = char:WaitForChild("LeftUpperLeg", 5),
+            LowerTorso = char:WaitForChild("LowerTorso", 5),
+            RightFoot = char:WaitForChild("RightFoot", 5),
+            RightHand = char:WaitForChild("RightHand", 5),
+            RightLowerArm = char:WaitForChild("RightLowerArm", 5),
+            RightLowerLeg = char:WaitForChild("RightLowerLeg", 5),
+            RightUpperArm = char:WaitForChild("RightUpperArm", 5),
+            RightUpperLeg = char:WaitForChild("RightUpperLeg", 5),
+            UpperTorso = char:WaitForChild("UpperTorso", 5)
+        }
+        
         return {
             Character = char,
             HumanoidRootPart = hrp,
-            Humanoid = hum
+            Humanoid = hum,
+            Parts = parts
         }
     end)
     if success then
         return result
     else
-        warn("ไม่พบตัวละครใน Workspace.Characters: ", result)
+        warn("Failed to find character in Workspace.Characters: ", result)
         return nil
     end
 end
 
-local charData = updateCharacterData()
+local function anchorAllParts(data, anchor)
+    if data and data.HumanoidRootPart and data.Parts then
+        local success, errorMsg = pcall(function()
+            data.HumanoidRootPart.Anchored = anchor
+            for _, part in pairs(data.Parts) do
+                if part:IsA("BasePart") then
+                    part.Anchored = anchor
+                end
+            end
+        end)
+        if not success then
+            warn("Error anchoring parts: ", errorMsg)
+        end
+    end
+end
+
+charData = updateCharacterData()
 local function enableNoclip()
     if noclipConnection then
         return
@@ -186,11 +221,11 @@ localPlayer.CharacterAdded:Connect(function()
     if charData and charData.HumanoidRootPart then
         if teleportEnabled then
             Workspace.Gravity = 0
-            charData.HumanoidRootPart.Anchored = true
+            anchorAllParts(charData, true)
             enableNoclip()
         else
             Workspace.Gravity = defaultGravity
-            charData.HumanoidRootPart.Anchored = false
+            anchorAllParts(charData, false)
             disableNoclip()
         end
     end
@@ -215,7 +250,6 @@ local function monitorAnimalFolders()
 end
 
 monitorAnimalFolders()
-
 local function getNearestPart()
     local mobFolder = Workspace:FindFirstChild("MobFolder")
     if not mobFolder then
@@ -246,6 +280,7 @@ local function getNearestPart()
     return nearestPart
 end
 
+-- Update safeTeleportToPart to handle all parts
 local function safeTeleportToPart(targetPosition, currentPart)
     local success, errorMsg = pcall(function()
         if charData and charData.Humanoid and charData.HumanoidRootPart and charData.HumanoidRootPart:IsDescendantOf(Workspace) and charData.Humanoid.Health > 0 then
@@ -257,13 +292,13 @@ local function safeTeleportToPart(targetPosition, currentPart)
             local adjustedPosition = targetPosition + Vector3.new(0, -10, 0)
             charData.HumanoidRootPart.CFrame = CFrame.new(adjustedPosition)
             if lastTeleportedPart ~= currentPart then
-                charData.HumanoidRootPart.Anchored = false
+                anchorAllParts(charData, false) -- Unanchor temporarily
                 task.wait(0.1)
                 if teleportEnabled and charData and charData.HumanoidRootPart and charData.HumanoidRootPart:IsDescendantOf(Workspace) then
-                    charData.HumanoidRootPart.Anchored = true
+                    anchorAllParts(charData, true) -- Re-anchor
                 end
             else
-                charData.HumanoidRootPart.Anchored = teleportEnabled
+                anchorAllParts(charData, teleportEnabled)
             end
             if teleportEnabled and autoSellEnabled then
                 local animalsFolder = localPlayer.PlayerGui:FindFirstChild("Data") and localPlayer.PlayerGui.Data:FindFirstChild("Animals")
@@ -653,7 +688,7 @@ Section1_Tab1:AddToggle({
                 end
 
                 Workspace.Gravity = 0
-                charData.HumanoidRootPart.Anchored = true
+                anchorAllParts(charData, true)
                 enableNoclip()
                 Remote_Farm = true
                 start_Remote_Lasso()
@@ -689,11 +724,11 @@ Section1_Tab1:AddToggle({
                     local targetCFrame = CFrame.new(targetPos)
             
                     local success, errorMsg = pcall(function()
-                        charData.HumanoidRootPart.Anchored = true
+                        anchorAllParts(charData, true)
                         task.wait(0.1)
                         charData.HumanoidRootPart.CFrame = targetCFrame
                         task.wait(0.1)
-                        charData.HumanoidRootPart.Anchored = false
+                        anchorAllParts(charData, false)
                         task.wait(0.1)
                         disableNoclip()
                     end)
@@ -742,7 +777,7 @@ Section1_Tab1:AddToggle({
                 end
 
                 Workspace.Gravity = 0
-                charData.HumanoidRootPart.Anchored = true
+                anchorAllParts(charData, true)
                 enableNoclip()
                 Remote_Farm = true
                 start_Remote_Food()
@@ -778,11 +813,11 @@ Section1_Tab1:AddToggle({
                     local targetCFrame = CFrame.new(targetPos)
             
                     local success, errorMsg = pcall(function()
-                        charData.HumanoidRootPart.Anchored = true
+                        anchorAllParts(charData, true)
                         task.wait(0.1)
                         charData.HumanoidRootPart.CFrame = targetCFrame
                         task.wait(0.1)
-                        charData.HumanoidRootPart.Anchored = false
+                        anchorAllParts(charData, false)
                         task.wait(0.1)
                         disableNoclip()
                     end)
@@ -839,7 +874,7 @@ Section1_Tab1:AddToggle({
 
                 -- Set up environment for farming
                 Workspace.Gravity = 0
-                charData.HumanoidRootPart.Anchored = true
+                anchorAllParts(charData, true)
                 enableNoclip()
 
                 -- Start GUI monitoring loop
@@ -911,11 +946,11 @@ Section1_Tab1:AddToggle({
                     local targetCFrame = CFrame.new(targetPos)
 
                     local success, errorMsg = pcall(function()
-                        charData.HumanoidRootPart.Anchored = true
+                        anchorAllParts(charData, true)
                         task.wait(0.1)
                         charData.HumanoidRootPart.CFrame = targetCFrame
                         task.wait(0.1)
-                        charData.HumanoidRootPart.Anchored = false
+                        anchorAllParts(charData, false)
                         task.wait(0.1)
                         disableNoclip()
                     end)
