@@ -145,6 +145,9 @@ local horseSpawnLocations = {
     },
     Gray = {
         Vector3.new(633.1749267578125, 37.64652442932129, -1504.0126953125)
+    },
+    Hippocampus = {
+        Vector3.new(427.2292785644531, 37.722633361816406, -2493.263671875)
     }
 }
 
@@ -443,7 +446,7 @@ Section1_Tab1:AddDropdown({
                 "Flora", "Cybred", "Celestial",
                 "Wolper", "Saurequine", "Alces",
                 "Pastrequine", "Ghoulsteed", "Fairy",
-                "Gray", "All"},
+                "Gray", "Hippocampus", "All"},
     Default = "None",
     Callback = function(selected)
         selectedPart = selected
@@ -1079,7 +1082,7 @@ local function farmFood()
                 local remoteEvent = resourceFolder:FindFirstChild("RemoteEvent")
                 if remoteEvent then
                     local args1 = {
-                        [1] = 5,
+                        [1] = 200,
                         [2] = true
                     }
                     remoteEvent:InvokeServer(unpack(args1))
@@ -1224,6 +1227,57 @@ Section2_Tab2:AddToggle({
                     teleportToPosition(position)
                 end
             end
+        end
+    end
+})
+
+local function farmFood1()
+    local success, errorMsg = pcall(function()
+        local resources = selectedFood == "All" and {
+            "AppleBarrel", "BerryBush", "FallenTree", "FoodPallet",
+            "LargeBerryBush", "StoneDeposit", "Stump", "Treasure", "SilkBush"
+        } or {selectedFood}
+
+        for _, resource in ipairs(resources) do
+            local resourceFolder = Workspace:FindFirstChild("Interactions") and 
+                                Workspace.Interactions:FindFirstChild("Resource") and 
+                                Workspace.Interactions.Resource:FindFirstChild(resource)
+            
+            if resourceFolder then
+                local remoteEvent = resourceFolder:FindFirstChild("RemoteEvent")
+                if remoteEvent then
+                    local args1 = {
+                        [1] = 200,
+                        [2] = true
+                    }
+                    remoteEvent:InvokeServer(unpack(args1))
+
+                    task.wait(0.1)
+                    local args2 = {
+                        [1] = localPlayer.Character and localPlayer.Character.Animals:FindFirstChild("27")
+                    }
+                    if args2[1] then
+                        remoteEvent:InvokeServer(unpack(args2))
+                    end
+                end
+            end
+        end
+    end)
+end
+
+Section2_Tab2:AddToggle({
+    Name = "Food Test",
+    Default = false,
+    Callback = function(state)
+        FarmToggles.FarmFood = state
+        if state and charData and charData.HumanoidRootPart then
+            task.spawn(function()
+                while FarmToggles.FarmFood do
+                    farmFood1()
+                    sendDrops()
+                    task.wait(0.01)
+                end
+            end)
         end
     end
 })
